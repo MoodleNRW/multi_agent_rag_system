@@ -4,9 +4,12 @@ chainlit
 #Backend
 langchain-core
 langgraph
-langchain-community
+langchain_community
 langchain-openai
 openai
 typing
 requests
 beautifulsoup4
+
+#Vectorization
+langchain-weaviate

@@ -1,6 +1,9 @@
+import dotenv
 from langchain_community.vectorstores import Weaviate
 import weaviate
-import openai
+from langchain_openai import ChatOpenAI 
+from langchain.embeddings import OpenAIEmbeddings 
+dotenv.load_dotenv()
 
 # Initialize the Weaviate client
 weaviate_client = weaviate.Client("http://localhost:8090")
@@ -18,8 +21,7 @@ documents = [
 # Add documents to the index
 vectorstore.add_texts(texts=[doc["content"] for doc in documents])
 
-# Use OpenAI to get vector representation for the query
-openai.api_key = "your-openai-api-key"  # Replace with your actual OpenAI API key
+openai = OpenAIEmbeddings()
 
 query = "What is Weaviate?"
 response = openai.Embedding.create(
