@@ -1,4 +1,11 @@
+#Frontend
 chainlit
+
+#Backend
+langchain-core
+langgraph
+langchain-community
+langchain-openai
 openai
 typing
 requests

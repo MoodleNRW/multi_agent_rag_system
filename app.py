@@ -1,6 +1,9 @@
 import chainlit as cl
 from openai import OpenAI
+import langgraph
+from textwrap import wrap as text_wrap
 from config_manager import ConfigManager
+from agent.graph import compile_workflow
 
 base_url = "https://api.openai.com/v1"
 config_manager = ConfigManager(base_url)
@@ -35,30 +38,44 @@ async def main(message: cl.Message):
         temperature = 0.7  # Default temperature
     if max_tokens is None:
         max_tokens = 4000  # Default max tokens
-
-    client = OpenAI(api_key=api_key)
     
     msg = cl.Message(content=message)
-    await msg.send()
     
     try:
-        stream = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": message.content}],
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=True,
-        )
-        
-        content = ""
-        for chunk in stream:
-            if len(chunk.choices) > 0 and chunk.choices[0].delta.content is not None:
-                content += chunk.choices[0].delta.content
-                await msg.stream_token(chunk.choices[0].delta.content)
-        
+        input = {"question": message.content}
+        final_answer, final_state = execute_plan_and_print_steps(input)
+        await cl.Message(content=final_answer).send()
+        print(f'final state: {final_state}')
         await msg.update()
     except Exception as e:
         await cl.Message(content=f"An error occurred: {str(e)}").send()
+
+
+@cl.step(type="llm")
+def execute_plan_and_print_steps(inputs, recursion_limit=45):
+    """
+    Execute the plan and print the steps.
+    Args:
+        inputs: The inputs to the plan.
+        recursion_limit: The recursion limit.
+    Returns:
+        The response and the final state.
+    """
+    
+    config = {"recursion_limit": recursion_limit}
+
+    try:    
+        for plan_output in compile_workflow().stream(inputs, config=config):
+            for _, agent_state_value in plan_output.items():
+                pass
+                print(f' curr step: {agent_state_value}')
+        response = agent_state_value['response']
+    except langgraph.pregel.GraphRecursionError:
+        response = "The answer wasn't found in the data."
+    final_state = agent_state_value
+
+    return response, final_state
+
 
 if __name__ == "__main__":
     cl.run()
