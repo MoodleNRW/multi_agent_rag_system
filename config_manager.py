@@ -59,40 +59,39 @@ class ConfigManager:
             step=50
         ))
 
-        if api_key:
-            models = await self.get_available_models(api_key)
-            if models:
-                current_model = current_settings.get("ACTIVEMODEL")
-                if not current_model:
-                    current_model = models[0]  # Set default to the first model if none is selected
-                    current_settings["ACTIVEMODEL"] = current_model
-                    cl.user_session.set("settings", current_settings)
+        # if api_key:
+        #     models = await self.get_available_models(api_key)
+        #     if models:
+        #         current_model = current_settings.get("ACTIVEMODEL")
+        #         if not current_model:
+        #             current_model = models[0]  # Set default to the first model if none is selected
+        #             current_settings["ACTIVEMODEL"] = current_model
+        #             cl.user_session.set("settings", current_settings)
 
-                initial_index = models.index(current_model) if current_model in models else 0
-                self.settings.append(Select(
-                    id="ACTIVEMODEL",
-                    label="Open AI - Model",
-                    values=models,
-                    initial_index=initial_index
-                ))
-
+        #         initial_index = models.index(current_model) if current_model in models else 0
+        #         self.settings.append(Select(
+        #             id="ACTIVEMODEL",
+        #             label="Open AI - Model",
+        #             values=models,
+        #             initial_index=initial_index
+        #         ))
         return self.settings
 
-    async def get_available_models(self, api_key: str) -> List[str]:
-        try:
-            url = f"{self.base_url}/models"
-            headers = {"Authorization": f"Bearer {api_key}"}
-            response = requests.get(url, headers=headers)
+    # async def get_available_models(self, api_key: str) -> List[str]:
+    #     try:
+    #         url = f"{self.base_url}/models"
+    #         headers = {"Authorization": f"Bearer {api_key}"}
+    #         response = requests.get(url, headers=headers)
             
-            if response.status_code == 200:
-                models = json.loads(response.text)
-                return [model["id"] for model in models]
-            else:
-                await cl.Message(content=f"API Error: {response.status_code} - {response.text}").send()
-                return []
-        except Exception as e:
-            await cl.Message(content=f"Exception occurred: {str(e)}").send()
-            return []
+    #         if response.status_code == 200:
+    #             models = json.loads(response.text)
+    #             return [model["id"] for model in models]
+    #         else:
+    #             await cl.Message(content=f"API Error: {response.status_code} - {response.text}").send()
+    #             return []
+    #     except Exception as e:
+    #         await cl.Message(content=f"Exception occurred: {str(e)}").send()
+    #         return []
 
     async def update_settings(self, new_settings: Dict[str, Any]):
         current_settings = cl.user_session.get("settings", {})

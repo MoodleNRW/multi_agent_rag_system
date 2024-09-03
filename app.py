@@ -26,9 +26,9 @@ async def main(message: cl.Message):
         await cl.Message(content="Please set your API key in the settings.").send()
         return
     
-    if not model:
-        await cl.Message(content="Please select a model in the settings before sending a message.").send()
-        return
+    # if not model:
+    #     await cl.Message(content="Please select a model in the settings before sending a message.").send()
+    #     return
 
     # Ensure temperature and max_tokens are set
     if temperature is None:
@@ -36,14 +36,14 @@ async def main(message: cl.Message):
     if max_tokens is None:
         max_tokens = 4000  # Default max tokens
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    client = OpenAI(api_key=api_key)
     
-    msg = cl.Message(content="")
+    msg = cl.Message(content=message)
     await msg.send()
     
     try:
         stream = client.chat.completions.create(
-            model=model,
+            model="gpt-4o",
             messages=[{"role": "user", "content": message.content}],
             temperature=temperature,
             max_tokens=max_tokens,
