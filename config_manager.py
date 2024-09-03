@@ -7,9 +7,9 @@ import json
 from typing import List, Dict, Any
 
 class ConfigManager:
-    def __init__(self, base_url: str):
+    def __init__(self):
         load_dotenv()
-        self.base_url = base_url
+        self.base_url = "" # "https://api.openai.com/v1" not used
         self.settings: List[InputWidget] = []
         self.env_path = os.path.join(os.path.dirname(__file__), ".env")
 

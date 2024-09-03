@@ -3,7 +3,6 @@ from langchain_core.output_parsers import JsonOutputParser
 from langchain_openai import ChatOpenAI 
 from langchain.prompts import PromptTemplate
 
-
 class AnonymizeQuestion(BaseModel):
     """Anonymized question and mapping."""
     anonymized_question : str = Field(description="Anonymized question.")

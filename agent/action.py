@@ -2,6 +2,129 @@
 from agent.state import AgentGraphState
 from agent.nodes import anonymize_question_chain
 
+
+
+def anonymize_queries(state: AgentGraphState):
+    """
+    Anonymizes the question.
+    Args:
+        state: The current state of the plan execution.
+    Returns:
+        The updated state with the anonymized question and mapping.
+    """
+    state["curr_state"] = "anonymize_question"
+    print("Anonymizing question")
+    print("--------------------")
+    anonymized_question_output = anonymize_question_chain.invoke(state['question'])
+    anonymized_question = anonymized_question_output["anonymized_question"]
+    # print(f'anonimized_querry: {anonymized_question}')
+    # print("--------------------")
+    # mapping = anonymized_question_output["mapping"]
+    state["anonymized_question"] = anonymized_question
+    # state["mapping"] = mapping
+    return state
+
+
+# def deanonymize_queries(state: AgentGraphState):
+#     """
+#     De-anonymizes the plan.
+#     Args:
+#         state: The current state of the plan execution.
+#     Returns:
+#         The updated state with the de-anonymized plan.
+#     """
+#     state["curr_state"] = "de_anonymize_plan"
+#     print("De-anonymizing plan")
+#     print("--------------------")
+#     deanonimzed_plan = de_anonymize_plan_chain.invoke({"plan": state["plan"], "mapping": state["mapping"]})
+#     state["plan"] = deanonimzed_plan.plan
+#     print(f'de-anonimized_plan: {deanonimzed_plan.plan}')
+#     return state
+
+
+# def plan_step(state: AgentGraphState):
+#     """
+#     Plans the next step.
+#     Args:
+#         state: The current state of the plan execution.
+#     Returns:
+#         The updated state with the plan.
+#     """
+#     state["curr_state"] = "planner"
+#     print("Planning step")
+#     pprint("--------------------")
+#     plan = planner.invoke({"question": state['anonymized_question']})
+#     state["plan"] = plan.steps
+#     print(f'plan: {state["plan"]}')
+#     return state
+
+
+
+
+
+# def break_down_plan_step(state: AgentGraphState):
+#     """
+#     Breaks down the plan steps into retrievable or answerable tasks.
+#     Args:
+#         state: The current state of the plan execution.
+#     Returns:
+#         The updated state with the refined plan.
+#     """
+#     state["curr_state"] = "break_down_plan"
+#     print("Breaking down plan steps into retrievable or answerable tasks")
+#     pprint("--------------------")
+#     refined_plan = break_down_plan_chain.invoke(state["plan"])
+#     state["plan"] = refined_plan.steps
+#     return state
+
+
+
+# def replan_step(state: AgentGraphState):
+#     """
+#     Replans the next step.
+#     Args:
+#         state: The current state of the plan execution.
+#     Returns:
+#         The updated state with the plan.
+#     """
+#     state["curr_state"] = "replan"
+#     print("Replanning step")
+#     pprint("--------------------")
+#     inputs = {"question": state["question"], "plan": state["plan"], "past_steps": state["past_steps"], "aggregated_context": state["aggregated_context"]}
+#     output = replanner.invoke(inputs)
+#     state["plan"] = output['plan']['steps']
+#     return state
+
+
+# def can_be_answered(state: AgentGraphState):
+#     """
+#     Determines if the question can be answered.
+#     Args:
+#         state: The current state of the plan execution.
+#     Returns:
+#         whether the original question can be answered or not.
+#     """
+#     state["curr_state"] = "can_be_answered_already"
+#     print("Checking if the ORIGINAL QUESTION can be answered already")
+#     pprint("--------------------")
+#     question = state["question"]
+#     context = state["aggregated_context"]
+#     inputs = {"question": question, "context": context}
+#     output = can_be_answered_already_chain.invoke(inputs)
+#     if output.can_be_answered == True:
+#         print("The ORIGINAL QUESTION can be fully answered already.")
+#         pprint("--------------------")
+#         print("the aggregated context is:")
+#         print(text_wrap(state["aggregated_context"]))
+#         print("--------------------")
+#         return "can_be_answered_already"
+#     else:
+#         print("The ORIGINAL QUESTION cannot be fully answered yet.")
+#         pprint("--------------------")
+#         return "cannot_be_answered_yet"
+
+
+
 # def run_task_handler_chain(state: AgentGraphState):
 #     """ Run the task handler chain to decide which tool to use to execute the task.
 #     Args:
@@ -179,120 +302,3 @@ def run_qualtative_answer_workflow_for_final_answer(state):
     #     print("--------------------")
     state["response"] = "Test  run_qualtative_answer_workflow_for_final_answer...."#value
     return state
-
-
-def anonymize_queries(state: AgentGraphState):
-    """
-    Anonymizes the question.
-    Args:
-        state: The current state of the plan execution.
-    Returns:
-        The updated state with the anonymized question and mapping.
-    """
-    state["curr_state"] = "anonymize_question"
-    print("Anonymizing question")
-    print("--------------------")
-    anonymized_question_output = anonymize_question_chain.invoke(state['question'])
-    anonymized_question = anonymized_question_output["anonymized_question"]
-    # print(f'anonimized_querry: {anonymized_question}')
-    # print("--------------------")
-    # mapping = anonymized_question_output["mapping"]
-    state["anonymized_question"] = anonymized_question
-    # state["mapping"] = mapping
-    return state
-
-
-# def deanonymize_queries(state: AgentGraphState):
-#     """
-#     De-anonymizes the plan.
-#     Args:
-#         state: The current state of the plan execution.
-#     Returns:
-#         The updated state with the de-anonymized plan.
-#     """
-#     state["curr_state"] = "de_anonymize_plan"
-#     print("De-anonymizing plan")
-#     print("--------------------")
-#     deanonimzed_plan = de_anonymize_plan_chain.invoke({"plan": state["plan"], "mapping": state["mapping"]})
-#     state["plan"] = deanonimzed_plan.plan
-#     print(f'de-anonimized_plan: {deanonimzed_plan.plan}')
-#     return state
-
-
-# def plan_step(state: AgentGraphState):
-#     """
-#     Plans the next step.
-#     Args:
-#         state: The current state of the plan execution.
-#     Returns:
-#         The updated state with the plan.
-#     """
-#     state["curr_state"] = "planner"
-#     print("Planning step")
-#     pprint("--------------------")
-#     plan = planner.invoke({"question": state['anonymized_question']})
-#     state["plan"] = plan.steps
-#     print(f'plan: {state["plan"]}')
-#     return state
-
-
-# def break_down_plan_step(state: AgentGraphState):
-#     """
-#     Breaks down the plan steps into retrievable or answerable tasks.
-#     Args:
-#         state: The current state of the plan execution.
-#     Returns:
-#         The updated state with the refined plan.
-#     """
-#     state["curr_state"] = "break_down_plan"
-#     print("Breaking down plan steps into retrievable or answerable tasks")
-#     pprint("--------------------")
-#     refined_plan = break_down_plan_chain.invoke(state["plan"])
-#     state["plan"] = refined_plan.steps
-#     return state
-
-
-
-# def replan_step(state: AgentGraphState):
-#     """
-#     Replans the next step.
-#     Args:
-#         state: The current state of the plan execution.
-#     Returns:
-#         The updated state with the plan.
-#     """
-#     state["curr_state"] = "replan"
-#     print("Replanning step")
-#     pprint("--------------------")
-#     inputs = {"question": state["question"], "plan": state["plan"], "past_steps": state["past_steps"], "aggregated_context": state["aggregated_context"]}
-#     output = replanner.invoke(inputs)
-#     state["plan"] = output['plan']['steps']
-#     return state
-
-
-# def can_be_answered(state: AgentGraphState):
-#     """
-#     Determines if the question can be answered.
-#     Args:
-#         state: The current state of the plan execution.
-#     Returns:
-#         whether the original question can be answered or not.
-#     """
-#     state["curr_state"] = "can_be_answered_already"
-#     print("Checking if the ORIGINAL QUESTION can be answered already")
-#     pprint("--------------------")
-#     question = state["question"]
-#     context = state["aggregated_context"]
-#     inputs = {"question": question, "context": context}
-#     output = can_be_answered_already_chain.invoke(inputs)
-#     if output.can_be_answered == True:
-#         print("The ORIGINAL QUESTION can be fully answered already.")
-#         pprint("--------------------")
-#         print("the aggregated context is:")
-#         print(text_wrap(state["aggregated_context"]))
-#         print("--------------------")
-#         return "can_be_answered_already"
-#     else:
-#         print("The ORIGINAL QUESTION cannot be fully answered yet.")
-#         pprint("--------------------")
-#         return "cannot_be_answered_yet"
