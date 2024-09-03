@@ -29,12 +29,12 @@ class ConfigManager:
         current_settings = cl.user_session.get("settings", {})
         self.settings = []
 
-        api_key = current_settings.get("GWDG_API_KEY", self.get_env_value("GWDG_API_KEY"))
+        api_key = current_settings.get("OPENAI_API_KEY", self.get_env_value("OPENAI_API_KEY"))
         self.settings.append(TextInput(
-            id="GWDG_API_KEY",
-            label="GWDG API Key",
+            id="OPENAI_API_KEY",
+            label="OPENAI API Key",
             initial=api_key,
-            placeholder="Enter your GWDG API Key here"
+            placeholder="Enter your OpenAi API Key here"
         ))
 
         temperature = float(current_settings.get("TEMPERATURE", 0.7))
@@ -71,7 +71,7 @@ class ConfigManager:
                 initial_index = models.index(current_model) if current_model in models else 0
                 self.settings.append(Select(
                     id="ACTIVEMODEL",
-                    label="GWDG - Model",
+                    label="Open AI - Model",
                     values=models,
                     initial_index=initial_index
                 ))
