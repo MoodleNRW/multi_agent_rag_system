@@ -23,8 +23,6 @@ anonymize_question_prompt_template = """ You are a question anonymizer. The inpu
  you must replace all name entities in the input with variables, and remember the mapping of the original name entities to the variables.
   output the anonymized question and the mapping in a json format. {format_instructions}"""
 
-
-
 anonymize_question_prompt = PromptTemplate(
     template=anonymize_question_prompt_template,
     input_variables=["question"],
