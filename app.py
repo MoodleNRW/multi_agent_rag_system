@@ -2,7 +2,7 @@ import chainlit as cl
 from openai import OpenAI
 from config_manager import ConfigManager
 
-base_url = "https://chat-ai.academiccloud.de/v1"
+base_url = "https://api.openai.com/v1"
 config_manager = ConfigManager(base_url)
 
 @cl.on_chat_start
@@ -17,7 +17,7 @@ async def update_settings(settings):
 
 @cl.on_message
 async def main(message: cl.Message):
-    api_key = config_manager.get_setting_value("GWDG_API_KEY")
+    api_key = config_manager.get_setting_value("OPENAI_API_KEY")
     model = config_manager.get_setting_value("ACTIVEMODEL")
     temperature = float(config_manager.get_setting_value("TEMPERATURE"))
     max_tokens = int(config_manager.get_setting_value("MAXTOKENS"))
