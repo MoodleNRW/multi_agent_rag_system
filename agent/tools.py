@@ -1,5 +1,6 @@
 
 from agent.state import AgentGraphState
+from agent.nodes import anonymize_question_chain
 
 # def run_task_handler_chain(state: AgentGraphState):
 #     """ Run the task handler chain to decide which tool to use to execute the task.
@@ -170,8 +171,8 @@ def run_qualtative_answer_workflow_for_final_answer(state):
     state["curr_state"] = "get_final_answer"
     print("Running the qualitative answer workflow for final answer...")
     question = state["question"]
-    context = state["aggregated_context"]
-    inputs = {"question": question, "context": context}
+    #context = state["aggregated_context"]
+    inputs = {"question": question, "context": "TODO Hier wird Vectordb retrieved"}
     # for output in qualitative_answer_workflow_app.stream(inputs):
     #     for _, value in output.items():
     #         pass  
@@ -191,7 +192,7 @@ def anonymize_queries(state: AgentGraphState):
     state["curr_state"] = "anonymize_question"
     print("Anonymizing question")
     print("--------------------")
-    anonymized_question_output = "TEST"#anonymize_question_chain.invoke(state['question'])
+    anonymized_question_output = anonymize_question_chain.invoke(state['question'])
     anonymized_question = anonymized_question_output["anonymized_question"]
     # print(f'anonimized_querry: {anonymized_question}')
     # print("--------------------")

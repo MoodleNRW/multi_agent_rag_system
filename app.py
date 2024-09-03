@@ -38,33 +38,20 @@ async def main(message: cl.Message):
         temperature = 0.7  # Default temperature
     if max_tokens is None:
         max_tokens = 4000  # Default max tokens
-
-    client = OpenAI(api_key=api_key)
     
     msg = cl.Message(content=message)
-    await msg.send()
     
     try:
         input = {"question": message.content}
-        msg.content = execute_plan_and_print_steps(input)
-        # stream = client.chat.completions.create(
-        #     model="gpt-4o",
-        #     messages=[{"role": "user", "content": message.content}],
-        #     temperature=temperature,
-        #     max_tokens=max_tokens,
-        #     stream=True,
-        # )
-        
-        # content = ""
-        # for chunk in stream:
-        #     if len(chunk.choices) > 0 and chunk.choices[0].delta.content is not None:
-        #         content += chunk.choices[0].delta.content
-        #         await msg.stream_token(chunk.choices[0].delta.content)
+        final_answer, final_state = execute_plan_and_print_steps(input)
+        await cl.Message(content=final_answer).send()
+        print(f'final state: {final_state}')
         await msg.update()
     except Exception as e:
         await cl.Message(content=f"An error occurred: {str(e)}").send()
 
 
+@cl.step(type="llm")
 def execute_plan_and_print_steps(inputs, recursion_limit=45):
     """
     Execute the plan and print the steps.
@@ -86,7 +73,7 @@ def execute_plan_and_print_steps(inputs, recursion_limit=45):
     except langgraph.pregel.GraphRecursionError:
         response = "The answer wasn't found in the data."
     final_state = agent_state_value
-    print(' the final answer is: {response}')
+
     return response, final_state
 
 
