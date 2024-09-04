@@ -87,6 +87,15 @@ class Plan(BaseModel):
 
 @cl.step(name="Plan Step", type="process")
 async def plan_step(state: PlanExecute):
+    """
+    Plans the next step.
+    Args:
+        state: The current state of the plan execution.
+    Returns:
+        The updated state with the plan.
+    """
+    state["curr_state"] = "planner"
+
     planner_prompt = """For the given query {question}, come up with a simple step by step plan of how to figure out the answer. 
 
     This plan should involve individual tasks, that if executed correctly will yield the correct answer. Do not add any superfluous steps. 
@@ -100,7 +109,7 @@ async def plan_step(state: PlanExecute):
         input_variables=["question"], 
     )
 
-    planner_llm = ChatOpenAI(temperature=0, model_name="gpt-4", max_tokens=2000)
+    planner_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
 
     planner = planner_prompt | planner_llm.with_structured_output(Plan)
 
@@ -112,6 +121,15 @@ async def plan_step(state: PlanExecute):
 
 @cl.step(name="Break Down Plan", type="process")
 async def break_down_plan_step(state: PlanExecute):
+    """
+    Breaks down the plan steps into retrievable or answerable tasks.
+    Args:
+        state: The current state of the plan execution.
+    Returns:
+        The updated state with the refined plan.
+    """
+    state["curr_state"] = "break_down_plan"
+
     break_down_plan_prompt_template = """You receive a plan {plan} which contains a series of steps to follow in order to answer a query. 
     You need to go through the plan and refine it according to these criteria:
     1. Every step has to be able to be executed by either:
@@ -133,7 +151,7 @@ async def break_down_plan_step(state: PlanExecute):
         input_variables=["plan"],
     )
 
-    break_down_plan_llm = ChatOpenAI(temperature=0, model_name="gpt-4", max_tokens=2000)
+    break_down_plan_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
     break_down_plan_chain = break_down_plan_prompt | break_down_plan_llm.with_structured_output(Plan)
 
     result = break_down_plan_chain.invoke({"plan": state["plan"]})
@@ -144,6 +162,15 @@ async def break_down_plan_step(state: PlanExecute):
 
 @cl.step(name="Replan", type="process")
 async def replan_step(state: PlanExecute):
+    """
+    Replans the next step.
+    Args:
+        state: The current state of the plan execution.
+    Returns:
+        The updated state with the plan.
+    """
+    state["curr_state"] = "replan"
+
     replan_prompt_template = """Given the current state of our question-answering process, we need to update our plan.
 
     Original question: {question}
@@ -163,7 +190,7 @@ async def replan_step(state: PlanExecute):
         input_variables=["question", "plan", "past_steps", "aggregated_context"],
     )
 
-    replan_llm = ChatOpenAI(temperature=0, model_name="gpt-4", max_tokens=2000)
+    replan_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
     replan_chain = replan_prompt | replan_llm.with_structured_output(Plan)
 
     result = replan_chain.invoke({

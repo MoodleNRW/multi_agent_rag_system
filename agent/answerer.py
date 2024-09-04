@@ -20,7 +20,7 @@ async def run_qualtative_answer_workflow(state: PlanExecute):
         input_variables=["context", "question"],
     )
 
-    answer_llm = ChatOpenAI(temperature=0, model_name="gpt-4", max_tokens=2000)
+    answer_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=2000)
     answer_chain = answer_prompt | answer_llm
 
     response = answer_chain.invoke({
@@ -41,6 +41,7 @@ async def run_qualtative_answer_workflow_for_final_answer(state: PlanExecute):
     Aggregated context: {aggregated_context}
 
     Please synthesize all the information and provide a detailed, accurate, and complete answer to the original question.
+    Keep Urls and references to the original sources in the answer.
     """
 
     final_answer_prompt = PromptTemplate(
@@ -48,7 +49,7 @@ async def run_qualtative_answer_workflow_for_final_answer(state: PlanExecute):
         input_variables=["question", "aggregated_context"],
     )
 
-    final_answer_llm = ChatOpenAI(temperature=0, model_name="gpt-4", max_tokens=2000)
+    final_answer_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
     final_answer_chain = final_answer_prompt | final_answer_llm
 
     response = final_answer_chain.invoke({

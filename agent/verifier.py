@@ -1,5 +1,3 @@
-# agent/verifier.py
-
 import chainlit as cl
 from .state import PlanExecute
 from langchain_openai import ChatOpenAI 
@@ -35,7 +33,7 @@ async def can_be_answered(state: PlanExecute):
         input_variables=["question", "context"],
     )
 
-    can_be_answered_llm = ChatOpenAI(temperature=0, model_name="gpt-4", max_tokens=2000)
+    can_be_answered_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", =2000)
     can_be_answered_chain = can_be_answered_prompt | can_be_answered_llm.with_structured_output(CanBeAnsweredOutput)
 
     result = can_be_answered_chain.invoke({

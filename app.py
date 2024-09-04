@@ -24,7 +24,7 @@ async def start():
     })
     
     # Send welcome message
-    await cl.Message(content="Welcome! I'm ready to answer your questions about Moodle. What would you like to know or do?").send()
+    await cl.Message(content="Welcome! I'm ready to answer your questions about Moodle ✅. What would you like to know or do?").send()
 
 @cl.on_settings_update
 async def update_settings(settings):
@@ -64,33 +64,35 @@ async def process_message(message_content: str):
     
     # Execute the workflow
     async for step_output in workflow.astream(initial_state):
-        await update_ui(step_output)
+        first_key = next(iter(step_output))
+        await update_ui(step_output[first_key])
     
     # Send the final response
-    final_response = step_output.get("response", "I couldn't generate a response. Please try rephrasing your question.")
-    cl.Message(content=final_response).send()
+    final_response = step_output[first_key].get("response", "I couldn't generate a response. Please try rephrasing your question.")
+    await cl.Message(content=final_response).send()
 
 async def update_ui(step_output):
     current_state = step_output.get("curr_state", "")
     
+    print("UPDATE UI", step_output)
     if current_state in ["retrieve_chunks", "retrieve_summaries", "retrieve_quotes"]:
-        cl.Message(content=f"Retrieving information: {current_state}").send()
+        await cl.Message(content=f"Retrieving information: {current_state}").send()
     elif current_state == "answer":
-        cl.Message(content="Generating answer based on retrieved information...").send()
+        await cl.Message(content="Generating answer based on retrieved information...").send()
     elif current_state == "planner":
-        cl.Message(content="Planning next steps...").send()
+        await cl.Message(content="Planning next steps...").send()
     elif current_state == "anonymize_question":
-        cl.Message(content="Anonymizing the question...").send()
+        await cl.Message(content="Anonymizing the question...").send()
     elif current_state == "de_anonymize_plan":
-        cl.Message(content="De-anonymizing the plan...").send()
+        await cl.Message(content="De-anonymizing the plan...").send()
     elif current_state == "break_down_plan":
-        cl.Message(content="Breaking down the plan into smaller steps...").send()
+        await cl.Message(content="Breaking down the plan into smaller steps...").send()
     elif current_state == "task_handler":
-        cl.Message(content="Deciding on the next action...").send()
+        await cl.Message(content="Deciding on the next action...").send()
     elif current_state == "replan":
-        cl.Message(content="Adjusting the plan based on new information...").send()
+        await cl.Message(content="Adjusting the plan based on new information...").send()
     elif current_state == "get_final_answer":
-        cl.Message(content="Preparing the final answer...").send()
+        await cl.Message(content="Preparing the final answer...").send()
 
     # You can add more detailed logging here if needed
     cl.Task(title=current_state, status=cl.TaskStatus.RUNNING)
