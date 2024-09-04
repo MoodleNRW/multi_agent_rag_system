@@ -27,8 +27,8 @@ async def run_qualitative_chunks_retrieval_workflow(state: PlanExecute):
         "X-OpenAI-Api-Key": API_KEY
     })
 
-    response = weaviate_client.query.get("Content_chunks",["url","content"]).with_near_text({"concepts": [query]}).with_limit(4).with_additional(["distance"]).do()
-    docs = response['data']['Get']['Content_chunks']
+    response = weaviate_client.query.get("Content_chunk",["url","content"]).with_near_text({"concepts": [query]}).with_limit(4).with_additional(["distance"]).do()
+    docs = response['data']['Get']['Content_chunk']
     
     # Filter out empty content
     retrieved_info = " ".join(f"{doc['url']}: {doc['content_chunk']}" for doc in docs if doc.get('content_chunk') and doc['content_chunk'].strip())
