@@ -41,6 +41,7 @@ async def run_qualtative_answer_workflow_for_final_answer(state: PlanExecute):
     Aggregated context: {aggregated_context}
 
     Please synthesize all the information and provide a detailed, accurate, and complete answer to the original question.
+    Keep Urls and references to the original sources in the answer.
     """
 
     final_answer_prompt = PromptTemplate(
