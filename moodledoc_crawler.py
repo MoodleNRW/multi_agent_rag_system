@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 import sys
 import os
 import time
@@ -23,9 +24,22 @@ API_KEY = os.getenv('OPENAI_API_KEY')
 weaviate_client = weaviate.Client("http://localhost:8090", additional_headers = {
         "X-OpenAI-Api-Key": API_KEY
     })
+
+# Erstelle DB Collection wenn sie noch nicht existiert
 if not weaviate_client.schema.exists("Content"):
     class_obj = {
         "class": "Content",
+        "vectorizer": "text2vec-openai",  # If set to "none" you must always provide vectors yourself. Could be any other "text2vec-*" also.
+        "moduleConfig": {
+            "text2vec-openai": {},
+            "generative-openai": {}  # Ensure the `generative-openai` module is used for generative queries
+        }
+    }
+    weaviate_client.schema.create_class(class_obj)
+
+if not weaviate_client.schema.exists("Content_chunk"):
+    class_obj = {
+        "class": "Content_chunk",
         "vectorizer": "text2vec-openai",  # If set to "none" you must always provide vectors yourself. Could be any other "text2vec-*" also.
         "moduleConfig": {
             "text2vec-openai": {},
@@ -122,6 +136,7 @@ def scrape_website(url, visited=None, max_workers=10, depth=10):
     weaviate_client.batch.configure(batch_size=10)  # Configure batch
     with weaviate_client.batch as batch:  # Initialize a batch process
         for url, text in results:  # Batch import data
+            # Content import
             print(f"importing content")
             where_filter = {
                 "path": ["url"],
@@ -136,7 +151,7 @@ def scrape_website(url, visited=None, max_workers=10, depth=10):
                 "date": datetime.now().isoformat(),
             }
             # if not create new object
-            if obj['errors'] or not obj['data']['Get']['Content']:
+            if 'errors' in obj or not obj['data']['Get']['Content']:
                 batch.add_data_object(
                     data_object=properties,
                     class_name="Content"
@@ -151,8 +166,60 @@ def scrape_website(url, visited=None, max_workers=10, depth=10):
                         "date": datetime.now().isoformat(),
                     },
                 )
+            # Chunk import 
+            text_splitter = RecursiveCharacterTextSplitter(
+                # Set a really small chunk size, just to show.
+                chunk_size=1000,
+                chunk_overlap=20,
+                length_function=len,
+                is_separator_regex=False,
+            )
+            texts = text_splitter.split_text(text)
+            i=0
+            for t in texts:
+                where_filter = {
+                    "operator": "And",
+                    "operands": [{
+                            "path": ["url"],
+                            "operator": "Equal",
+                            "valueString": url
+                        }, {
+                            "path": ["chunk_nr"],
+                            "operator": "Equal",
+                            "valueNumber": i,
+                        }]
+                }
+                # Check if url already exists
+                obj = weaviate_client.query.get("Content_chunk","url").with_where(where_filter).with_additional('id').do()
+                print(obj)
+                properties = {
+                    "url": url,
+                    "chunk_nr": i,
+                    "content_chunk": t,
+                    "date": datetime.now().isoformat(),
+                }
+                # if not create new object
+                if 'errors' in obj or not obj['data']['Get']['Content_chunk']:
+                    print("new chunk")
+                    batch.add_data_object(
+                        data_object=properties,
+                        class_name="Content_chunk"
+                    )
+                # else update existing
+                else:
+                    print("update")
+                    weaviate_client.data_object.update(
+                        uuid=obj['data']['Get']['Content_chunk'][0]['_additional']['id'],
+                        class_name="Content_chunk",
+                        data_object={
+                            "content_chunk": text,
+                            "date": datetime.now().isoformat(),
+                        },
+                    )
+                i = i + 1
 
-    return '\n'.join([f"# Page: {url}\n\n{text}\n" for url, text in results])
+    return ''
+    #return '\n'.join([f"# Page: {url}\n\n{text}\n" for url, text in results])
 
 def scrape_and_collect(url):
     text = scrape_text(url)
@@ -171,18 +238,19 @@ def main():
         website_url = sys.argv[1]
     else:
         website_url = input("Geben Sie eine Webseite ein, um das Scraping zu beginnen: ")
+        depth = int(input("Geben Sie eine maximale Anzahl an Seiten an die ausgelesen werden soll: "))
 
-    output_file = generate_output_filename(website_url)
+    #output_file = generate_output_filename(website_url)
 
     print(f"Starting the scraping process for: {website_url}")
     start_time = time.time()
-    scraped_text = scrape_website(website_url)
+    scrape_website(website_url, depth=depth)
 
-    with open(output_file, 'w', encoding='utf-8') as file:
-        file.write(scraped_text)
+    #with open(output_file, 'w', encoding='utf-8') as file:
+    #    file.write(scraped_text)
 
     elapsed_time = time.time() - start_time
-    print(f"\nScraped text has been saved to {output_file}")
+    #print(f"\nScraped text has been saved to {output_file}")
     print(f"Total time taken: {elapsed_time:.2f} seconds")
 
 if __name__ == "__main__":
