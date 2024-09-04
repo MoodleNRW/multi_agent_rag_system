@@ -1,87 +1,193 @@
+# agent/graph.py
+
+import chainlit as cl
 from langgraph.graph import StateGraph, END
-from agent.state import AgentGraphState
-from agent.tools import anonymize_queries, run_qualtative_answer_workflow_for_final_answer
+from langchain_openai import ChatOpenAI 
+from langchain.prompts import PromptTemplate
 
-def create_graph():
-    agent_workflow = StateGraph(AgentGraphState)
+from langchain_core.pydantic_v1 import BaseModel, Field
+from typing import List
 
-    # Add the anonymize node
+from .state import PlanExecute
+from .anonymizer import anonymize_queries, deanonymize_queries
+from .task_handler import run_task_handler_chain
+from .retriever import run_qualitative_chunks_retrieval_workflow, run_qualitative_summaries_retrieval_workflow, run_qualitative_quotes_retrieval_workflow
+from .answerer import run_qualtative_answer_workflow, run_qualtative_answer_workflow_for_final_answer
+from .verifier import can_be_answered
+
+async def create_agent_graph():
+    agent_workflow = StateGraph(PlanExecute)
+
+    # Add nodes
     agent_workflow.add_node("anonymize_question", anonymize_queries)
-
-    # # Add the plan node
-    # agent_workflow.add_node("planner", plan_step)
-
-    # # Add the break down plan node
-
-    # agent_workflow.add_node("break_down_plan", break_down_plan_step)
-
-    # # Add the deanonymize node
-    # agent_workflow.add_node("de_anonymize_plan", deanonymize_queries)
-
-    # # Add the qualitative chunks retrieval node
-    # agent_workflow.add_node("retrieve_chunks", run_qualitative_chunks_retrieval_workflow)
-
-    # # Add the qualitative summaries retrieval node
-    # agent_workflow.add_node("retrieve_summaries", run_qualitative_summaries_retrieval_workflow)
-
-    # # Add the qualitative book quotes retrieval node
-    # agent_workflow.add_node("retrieve_book_quotes", run_qualitative_book_quotes_retrieval_workflow)
-
-
-    # # Add the qualitative answer node
-    # agent_workflow.add_node("answer", run_qualtative_answer_workflow)
-
-    # # Add the task handler node
-    # agent_workflow.add_node("task_handler", run_task_handler_chain)
-
-    # # Add a replan node
-    # agent_workflow.add_node("replan", replan_step)
-
-    # Add answer from context node
+    agent_workflow.add_node("planner", plan_step)
+    agent_workflow.add_node("de_anonymize_plan", deanonymize_queries)
+    agent_workflow.add_node("break_down_plan", break_down_plan_step)
+    agent_workflow.add_node("task_handler", run_task_handler_chain)
+    agent_workflow.add_node("retrieve_chunks", run_qualitative_chunks_retrieval_workflow)
+    agent_workflow.add_node("retrieve_summaries", run_qualitative_summaries_retrieval_workflow)
+    agent_workflow.add_node("retrieve_quotes", run_qualitative_quotes_retrieval_workflow)
+    agent_workflow.add_node("answer", run_qualtative_answer_workflow)
+    agent_workflow.add_node("replan", replan_step)
     agent_workflow.add_node("get_final_answer", run_qualtative_answer_workflow_for_final_answer)
 
-    # # Set the entry point
+    # Set entry point
     agent_workflow.set_entry_point("anonymize_question")
 
-    # # From anonymize we go to plan
-    agent_workflow.add_edge("anonymize_question", "get_final_answer")
+    # Add edges
+    agent_workflow.add_edge("anonymize_question", "planner")
+    agent_workflow.add_edge("planner", "de_anonymize_plan")
+    agent_workflow.add_edge("de_anonymize_plan", "break_down_plan")
+    agent_workflow.add_edge("break_down_plan", "task_handler")
 
-    # # From plan we go to deanonymize
-    # agent_workflow.add_edge("planner", "de_anonymize_plan")
+    # Add conditional edges
+    agent_workflow.add_conditional_edges(
+        "task_handler",
+        retrieve_or_answer,
+        {
+            "chosen_tool_is_retrieve_chunks": "retrieve_chunks",
+            "chosen_tool_is_retrieve_summaries": "retrieve_summaries",
+            "chosen_tool_is_retrieve_quotes": "retrieve_quotes",
+            "chosen_tool_is_answer": "answer"
+        }
+    )
 
-    # # From deanonymize we go to break down plan
+    agent_workflow.add_edge("retrieve_chunks", "replan")
+    agent_workflow.add_edge("retrieve_summaries", "replan")
+    agent_workflow.add_edge("retrieve_quotes", "replan")
+    agent_workflow.add_edge("answer", "replan")
 
-    # agent_workflow.add_edge("de_anonymize_plan", "break_down_plan")
+    agent_workflow.add_conditional_edges(
+        "replan",
+        can_be_answered,
+        {
+            "can_be_answered_already": "get_final_answer",
+            "cannot_be_answered_yet": "break_down_plan"
+        }
+    )
 
-    # # From break_down_plan we go to task handler
-    # agent_workflow.add_edge("break_down_plan", "task_handler")
-
-    # # From task handler we go to either retrieve or answer
-    # agent_workflow.add_conditional_edges("task_handler", retrieve_or_answer, {"chosen_tool_is_retrieve_chunks": "retrieve_chunks", "chosen_tool_is_retrieve_summaries":
-    #                                                                         "retrieve_summaries", "chosen_tool_is_retrieve_quotes": "retrieve_book_quotes", "chosen_tool_is_answer": "answer"})
-
-    # # After retrieving we go to replan
-    # agent_workflow.add_edge("retrieve_chunks", "replan")
-
-    # agent_workflow.add_edge("retrieve_summaries", "replan")
-
-    # agent_workflow.add_edge("retrieve_book_quotes", "replan")
-
-    # # After answering we go to replan
-    # agent_workflow.add_edge("answer", "replan")
-
-    # # After replanning we check if the question can be answered, if yes we go to get_final_answer, if not we go to task_handler
-    # agent_workflow.add_conditional_edges("replan",can_be_answered, {"can_be_answered_already": "get_final_answer", "cannot_be_answered_yet": "break_down_plan"})
-
-    # After getting the final answer we end
     agent_workflow.add_edge("get_final_answer", END)
-
 
     return agent_workflow
 
-
-def compile_workflow():
-    graph = create_graph()
+async def compile_workflow():
+    graph = await create_agent_graph()
     workflow = graph.compile()
-    #display_graph(workflow)
     return workflow
+
+#todo move to a separate file
+class Plan(BaseModel):
+    """Plan to follow in future"""
+    steps: List[str] = Field(
+        description="different steps to follow, should be in sorted order"
+    )
+
+@cl.step(name="Plan Step", type="process")
+async def plan_step(state: PlanExecute):
+    planner_prompt = """For the given query {question}, come up with a simple step by step plan of how to figure out the answer. 
+
+    This plan should involve individual tasks, that if executed correctly will yield the correct answer. Do not add any superfluous steps. 
+    The result of the final step should be the final answer. Make sure that each step has all the information needed - do not skip steps.
+
+    Output the plan as a list of steps in JSON format.
+    """
+
+    planner_prompt = PromptTemplate(
+        template=planner_prompt,
+        input_variables=["question"], 
+    )
+
+    planner_llm = ChatOpenAI(temperature=0, model_name="gpt-4", max_tokens=2000)
+
+    planner = planner_prompt | planner_llm.with_structured_output(Plan)
+
+    result = planner.invoke({"question": state["anonymized_question"]})
+
+    state["plan"] = result.steps
+
+    return state
+
+@cl.step(name="Break Down Plan", type="process")
+async def break_down_plan_step(state: PlanExecute):
+    break_down_plan_prompt_template = """You receive a plan {plan} which contains a series of steps to follow in order to answer a query. 
+    You need to go through the plan and refine it according to these criteria:
+    1. Every step has to be able to be executed by either:
+        i. retrieving relevant information from a vector store of chunks
+        ii. retrieving relevant information from a vector store of chapter summaries
+        iii. retrieving relevant information from a vector store of quotes
+        iv. answering a question from a given context.
+    2. Every step should contain all the information needed to execute it.
+    3. Break down any step that is too broad or complex into multiple, more specific steps.
+    4. Ensure that the steps are in a logical order and build upon each other.
+    5. The final step should always be about synthesizing the information to answer the original question.
+
+    Output the refined plan as a list of detailed steps in JSON format.
+    """
+
+    break_down_plan_prompt = PromptTemplate(
+        template=break_down_plan_prompt_template,
+        input_variables=["plan"],
+    )
+
+    break_down_plan_llm = ChatOpenAI(temperature=0, model_name="gpt-4", max_tokens=2000)
+    break_down_plan_chain = break_down_plan_prompt | break_down_plan_llm.with_structured_output(Plan)
+
+    result = break_down_plan_chain.invoke({"plan": state["plan"]})
+
+    state["plan"] = result.steps
+
+    return state
+
+@cl.step(name="Replan", type="process")
+async def replan_step(state: PlanExecute):
+    replan_prompt_template = """Given the current state of our question-answering process, we need to update our plan.
+
+    Original question: {question}
+    Current plan: {plan}
+    Steps completed: {past_steps}
+    Current aggregated context: {aggregated_context}
+
+    Based on this information, please update the plan. If further steps are needed, provide only those steps.
+    Do not include steps that have already been completed.
+    If the question can be fully answered with the current information, the plan should only include a step to formulate the final answer.
+
+    Output the updated plan as a list of steps in JSON format.
+    """
+
+    replan_prompt = PromptTemplate(
+        template=replan_prompt_template,
+        input_variables=["question", "plan", "past_steps", "aggregated_context"],
+    )
+
+    replan_llm = ChatOpenAI(temperature=0, model_name="gpt-4", max_tokens=2000)
+    replan_chain = replan_prompt | replan_llm.with_structured_output(Plan)
+
+    result = replan_chain.invoke({
+        "question": state["question"],
+        "plan": state["plan"],
+        "past_steps": state["past_steps"],
+        "aggregated_context": state["aggregated_context"]
+    })
+
+    state["plan"] = result.steps
+
+    # Log the updated plan for debugging
+    cl.Task(title="Updated Plan", status=cl.TaskStatus.DONE)
+    for i, step in enumerate(state["plan"], 1):
+        cl.Task(title=f"Step {i}: {step}", status=cl.TaskStatus.DONE)
+
+    return state
+
+@cl.step(name="Decide Retrieval or Answer", type="process")
+async def retrieve_or_answer(state: PlanExecute):
+    # Implementation of retrieve or answer decision
+    # This is where you would implement the logic to decide whether to retrieve more information or answer
+    if "Retrieve" in state["plan"][0]:
+        if "chunks" in state["plan"][0]:
+            return "chosen_tool_is_retrieve_chunks"
+        elif "summaries" in state["plan"][0]:
+            return "chosen_tool_is_retrieve_summaries"
+        else:
+            return "chosen_tool_is_retrieve_quotes"
+    else:
+        return "chosen_tool_is_answer"

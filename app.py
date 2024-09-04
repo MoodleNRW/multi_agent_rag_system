@@ -1,18 +1,30 @@
+import os
 import chainlit as cl
-from openai import OpenAI
-import langgraph
-from textwrap import wrap as text_wrap
-from config_manager import ConfigManager
+from config.config_manager import ConfigManager
+from agent.state import PlanExecute
 from agent.graph import compile_workflow
+from vector_stores.retriever import create_retrievers
 
-base_url = "https://api.openai.com/v1"
-config_manager = ConfigManager(base_url)
+# Initialize ConfigManager
+config_manager = ConfigManager()
 
 @cl.on_chat_start
 async def start():
+    # Load and send settings
     settings = await config_manager.load_settings()
     chat_settings = cl.ChatSettings(settings)
     await chat_settings.send()
+    
+    # Initialize vector store retrievers
+    chunks_retriever, summaries_retriever, quotes_retriever = create_retrievers()
+    cl.user_session.set("retrievers", {
+        "chunks": chunks_retriever,
+        "summaries": summaries_retriever,
+        "quotes": quotes_retriever
+    })
+    
+    # Send welcome message
+    await cl.Message(content="Welcome! I'm ready to answer your questions about Moodle. What would you like to know or do?").send()
 
 @cl.on_settings_update
 async def update_settings(settings):
@@ -20,62 +32,68 @@ async def update_settings(settings):
 
 @cl.on_message
 async def main(message: cl.Message):
-    api_key = config_manager.get_setting_value("OPENAI_API_KEY")
-    model = config_manager.get_setting_value("ACTIVEMODEL")
-    temperature = float(config_manager.get_setting_value("TEMPERATURE"))
-    max_tokens = int(config_manager.get_setting_value("MAXTOKENS"))
-
-    if not api_key:
-        await cl.Message(content="Please set your API key in the settings.").send()
+    openai_api_key = config_manager.get_setting_value("OPENAI_API_KEY")
+    
+    if not openai_api_key:
+        await cl.Message(content="Please set your OpenAI API key in the settings.").send()
         return
     
-    # if not model:
-    #     await cl.Message(content="Please select a model in the settings before sending a message.").send()
-    #     return
-
-    # Ensure temperature and max_tokens are set
-    if temperature is None:
-        temperature = 0.7  # Default temperature
-    if max_tokens is None:
-        max_tokens = 4000  # Default max tokens
-    
-    msg = cl.Message(content=message)
-    
     try:
-        input = {"question": message.content}
-        final_answer, final_state = execute_plan_and_print_steps(input)
-        await cl.Message(content=final_answer).send()
-        print(f'final state: {final_state}')
-        await msg.update()
+        await process_message(message.content)
     except Exception as e:
         await cl.Message(content=f"An error occurred: {str(e)}").send()
 
-
-@cl.step(type="llm")
-def execute_plan_and_print_steps(inputs, recursion_limit=45):
-    """
-    Execute the plan and print the steps.
-    Args:
-        inputs: The inputs to the plan.
-        recursion_limit: The recursion limit.
-    Returns:
-        The response and the final state.
-    """
+@cl.step(name="Process Message", type="process")
+async def process_message(message_content: str):
+    # Compile the workflow
+    workflow = await compile_workflow()
     
-    config = {"recursion_limit": recursion_limit}
+    # Initialize the state
+    initial_state = PlanExecute(
+        question=message_content,
+        anonymized_question="",
+        query_to_retrieve_or_answer="",
+        plan=[],
+        past_steps=[],
+        mapping={},
+        curr_context="",
+        aggregated_context="",
+        tool="",
+        response=""
+    )
+    
+    # Execute the workflow
+    async for step_output in workflow.astream(initial_state):
+        await update_ui(step_output)
+    
+    # Send the final response
+    final_response = step_output.get("response", "I couldn't generate a response. Please try rephrasing your question.")
+    cl.Message(content=final_response).send()
 
-    try:    
-        for plan_output in compile_workflow().stream(inputs, config=config):
-            for _, agent_state_value in plan_output.items():
-                pass
-                print(f' curr step: {agent_state_value}')
-        response = agent_state_value['response']
-    except langgraph.pregel.GraphRecursionError:
-        response = "The answer wasn't found in the data."
-    final_state = agent_state_value
+async def update_ui(step_output):
+    current_state = step_output.get("curr_state", "")
+    
+    if current_state in ["retrieve_chunks", "retrieve_summaries", "retrieve_quotes"]:
+        cl.Message(content=f"Retrieving information: {current_state}").send()
+    elif current_state == "answer":
+        cl.Message(content="Generating answer based on retrieved information...").send()
+    elif current_state == "planner":
+        cl.Message(content="Planning next steps...").send()
+    elif current_state == "anonymize_question":
+        cl.Message(content="Anonymizing the question...").send()
+    elif current_state == "de_anonymize_plan":
+        cl.Message(content="De-anonymizing the plan...").send()
+    elif current_state == "break_down_plan":
+        cl.Message(content="Breaking down the plan into smaller steps...").send()
+    elif current_state == "task_handler":
+        cl.Message(content="Deciding on the next action...").send()
+    elif current_state == "replan":
+        cl.Message(content="Adjusting the plan based on new information...").send()
+    elif current_state == "get_final_answer":
+        cl.Message(content="Preparing the final answer...").send()
 
-    return response, final_state
-
+    # You can add more detailed logging here if needed
+    cl.Task(title=current_state, status=cl.TaskStatus.RUNNING)
 
 if __name__ == "__main__":
     cl.run()
