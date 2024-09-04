@@ -27,7 +27,7 @@ async def run_qualitative_chunks_retrieval_workflow(state: PlanExecute):
         "X-OpenAI-Api-Key": API_KEY
     })
 
-    response = weaviate_client.query.get("Content_chunk",["url","content"]).with_near_text({"concepts": [query]}).with_limit(4).with_additional(["distance"]).do()
+    response = weaviate_client.query.get("Content_chunk",["url","content_chunk"]).with_near_text({"concepts": [query]}).with_limit(4).with_additional(["distance"]).do()
     docs = response['data']['Get']['Content_chunk']
     
     # Filter out empty content
@@ -56,7 +56,7 @@ async def run_qualitative_summaries_retrieval_workflow(state: PlanExecute):
         "X-OpenAI-Api-Key": API_KEY
     })
 
-    response = weaviate_client.query.get("Content_summary",["url","content"]).with_near_text({"concepts": [query]}).with_limit(4).with_additional(["distance"]).do()
+    response = weaviate_client.query.get("Content_summary",["url","content_summary"]).with_near_text({"concepts": [query]}).with_limit(4).with_additional(["distance"]).do()
     docs = response['data']['Get']['Content_summary']
     
     # Filter out empty content
@@ -84,11 +84,11 @@ async def run_qualitative_quotes_retrieval_workflow(state: PlanExecute):
         "X-OpenAI-Api-Key": API_KEY
     })
 
-    response = weaviate_client.query.get("Content",["url","content"]).with_near_text({"concepts": [query]}).with_limit(4).with_additional(["distance"]).do()
-    docs = response['data']['Get']['Content']
+    response = weaviate_client.query.get("Content_chunk",["url","content_chunk"]).with_near_text({"concepts": [query]}).with_limit(4).with_additional(["distance"]).do()
+    docs = response['data']['Get']['Content_chunk']
     
     # Filter out empty content
-    retrieved_info = " ".join(f"{doc['url']}: {doc['content']}" for doc in docs if doc.get('content') and doc['content'].strip())
+    retrieved_info = " ".join(f"{doc['url']}: {doc['content_chunk']}" for doc in docs if doc.get('content') and doc['content'].strip())
     
     state["curr_context"] += f"Retrieved chunk information: {retrieved_info}"
     state["aggregated_context"] += state["curr_context"]
