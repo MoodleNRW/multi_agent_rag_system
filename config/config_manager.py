@@ -29,12 +29,12 @@ class ConfigManager:
         self.settings = []
 
         api_key = current_settings.get("OPENAI_API_KEY", self.get_env_value("OPENAI_API_KEY"))
-        self.settings.append(TextInput(
-            id="OPENAI_API_KEY",
-            label="OpenAI API Key",
-            initial=api_key,
-            placeholder="Enter your OpenAI API Key here"
-        ))
+        # self.settings.append(TextInput(
+        #     id="OPENAI_API_KEY",
+        #     label="OpenAI API Key",
+        #     initial=api_key,
+        #     placeholder="Enter your OpenAI API Key here"
+        # ))
 
         temperature = float(current_settings.get("TEMPERATURE", 0.7))
         self.settings.append(Slider(
