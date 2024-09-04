@@ -21,8 +21,8 @@ Um die Chainlit-Anwendung auf Ihrem Rechner zu installieren und einzurichten, fo
 2. Klonen Sie dieses Repository auf Ihren lokalen Rechner:
 
     ```bash
-    git clone https://github.com/Freakrider/chainlit_gwdg.git
-    cd chainlit_gwdg
+    git clone https://github.com/MoodleNRW/multi_agent_rag_system
+    cd multi_agent_rag_system
     ```
 
 3. Erstellen Sie eine virtuelle Umgebung:
