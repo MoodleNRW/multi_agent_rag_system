@@ -136,7 +136,7 @@ def scrape_website(url, visited=None, max_workers=10, depth=10):
                 "date": datetime.now().isoformat(),
             }
             # if not create new object
-            if obj['errors'] or not obj['data']['Get']['Content']:
+            if 'errors' in obj or not obj['data']['Get']['Content']:
                 batch.add_data_object(
                     data_object=properties,
                     class_name="Content"
@@ -151,8 +151,8 @@ def scrape_website(url, visited=None, max_workers=10, depth=10):
                         "date": datetime.now().isoformat(),
                     },
                 )
-
-    return '\n'.join([f"# Page: {url}\n\n{text}\n" for url, text in results])
+    return ''
+    #return '\n'.join([f"# Page: {url}\n\n{text}\n" for url, text in results])
 
 def scrape_and_collect(url):
     text = scrape_text(url)
@@ -171,18 +171,19 @@ def main():
         website_url = sys.argv[1]
     else:
         website_url = input("Geben Sie eine Webseite ein, um das Scraping zu beginnen: ")
+        depth = int(input("Geben Sie eine maximale Anzahl an Seiten an die ausgelesen werden soll: "))
 
-    output_file = generate_output_filename(website_url)
+    #output_file = generate_output_filename(website_url)
 
     print(f"Starting the scraping process for: {website_url}")
     start_time = time.time()
-    scraped_text = scrape_website(website_url)
+    scrape_website(website_url, depth=depth)
 
-    with open(output_file, 'w', encoding='utf-8') as file:
-        file.write(scraped_text)
+    #with open(output_file, 'w', encoding='utf-8') as file:
+    #    file.write(scraped_text)
 
     elapsed_time = time.time() - start_time
-    print(f"\nScraped text has been saved to {output_file}")
+    #print(f"\nScraped text has been saved to {output_file}")
     print(f"Total time taken: {elapsed_time:.2f} seconds")
 
 if __name__ == "__main__":
