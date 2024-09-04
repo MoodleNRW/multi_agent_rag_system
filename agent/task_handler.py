@@ -52,7 +52,7 @@ async def run_task_handler_chain(state: PlanExecute):
         input_variables=["curr_task", "aggregated_context", "last_tool", "past_steps", "question"],
     )
 
-    task_handler_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=2000)
+    task_handler_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
     task_handler_chain = task_handler_prompt | task_handler_llm.with_structured_output(TaskHandlerOutput)
 
     if not state["plan"]:

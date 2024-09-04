@@ -49,7 +49,7 @@ async def run_qualtative_answer_workflow_for_final_answer(state: PlanExecute):
         input_variables=["question", "aggregated_context"],
     )
 
-    final_answer_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=2000)
+    final_answer_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
     final_answer_chain = final_answer_prompt | final_answer_llm
 
     response = final_answer_chain.invoke({

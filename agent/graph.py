@@ -109,7 +109,7 @@ async def plan_step(state: PlanExecute):
         input_variables=["question"], 
     )
 
-    planner_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=2000)
+    planner_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
 
     planner = planner_prompt | planner_llm.with_structured_output(Plan)
 
@@ -151,7 +151,7 @@ async def break_down_plan_step(state: PlanExecute):
         input_variables=["plan"],
     )
 
-    break_down_plan_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=2000)
+    break_down_plan_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
     break_down_plan_chain = break_down_plan_prompt | break_down_plan_llm.with_structured_output(Plan)
 
     result = break_down_plan_chain.invoke({"plan": state["plan"]})
@@ -190,7 +190,7 @@ async def replan_step(state: PlanExecute):
         input_variables=["question", "plan", "past_steps", "aggregated_context"],
     )
 
-    replan_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=2000)
+    replan_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
     replan_chain = replan_prompt | replan_llm.with_structured_output(Plan)
 
     result = replan_chain.invoke({

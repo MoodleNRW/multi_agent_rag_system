@@ -77,7 +77,7 @@ async def deanonymize_queries(state: PlanExecute):
         input_variables=["plan", "mapping"],
     )
 
-    de_anonymize_plan_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=2000)
+    de_anonymize_plan_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
     de_anonymize_plan_chain = de_anonymize_plan_prompt | de_anonymize_plan_llm.with_structured_output(DeAnonymizePlan)
 
     result = de_anonymize_plan_chain.invoke({"plan": state["plan"], "mapping": state["mapping"]})
