@@ -18,6 +18,15 @@ class DeAnonymizePlan(BaseModel):
 
 @cl.step(name="Anonymize Query", type="tool")
 async def anonymize_queries(state: PlanExecute):
+    """
+    Anonymizes the question.
+    Args:
+        state: The current state of the plan execution.
+    Returns:
+        The updated state with the anonymized question and mapping.
+    """
+    state["curr_state"] = "anonymize_question"
+
     anonymize_question_parser = JsonOutputParser(pydantic_object=AnonymizeQuestion)
 
     anonymize_question_prompt_template = """ You are a question anonymizer. The input You receive is a string containing several words that
@@ -40,9 +49,8 @@ async def anonymize_queries(state: PlanExecute):
     anonymize_question_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000, )
     anonymize_question_chain = anonymize_question_prompt | anonymize_question_llm | anonymize_question_parser
 
-    print(state["question"])
     result = anonymize_question_chain.invoke({"question": state["question"]})
-    print(result)
+
     # Here's the change: we're now accessing the result as a dictionary
     state["anonymized_question"] = result["anonymized_question"]
     state["mapping"] = result["mapping"]
@@ -51,6 +59,15 @@ async def anonymize_queries(state: PlanExecute):
 
 @cl.step(name="Deanonymize Plan", type="tool")
 async def deanonymize_queries(state: PlanExecute):
+    """
+    De-anonymizes the plan.
+    Args:
+        state: The current state of the plan execution.
+    Returns:
+        The updated state with the de-anonymized plan.
+    """
+    state["curr_state"] = "de_anonymize_plan"
+
     de_anonymize_plan_prompt_template = """You receive a list of tasks: {plan}, where some of the words are replaced with mapped variables. You also receive
     the mapping for those variables to words {mapping}. Replace all the variables in the list of tasks with the mapped words. If no variables are present,
     return the original list of tasks. In any case, just output the updated list of tasks in a json format as described here, without any additional text apart from the JSON."""

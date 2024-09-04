@@ -14,6 +14,14 @@ class TaskHandlerOutput(BaseModel):
 
 @cl.step(name="Task Handler", type="process")
 async def run_task_handler_chain(state: PlanExecute):
+    """ Run the task handler chain to decide which tool to use to execute the task.
+    Args:
+       state: The current state of the plan execution.
+    Returns:
+       The updated state of the plan execution.
+    """
+    state["curr_state"] = "task_handler"
+
     task_handler_prompt_template = """You are a task handler that receives a task {curr_task} and have to decide which tool to use to execute the task.
     You have the following tools at your disposal:
     Tool A: a tool that retrieves relevant information from a vector store of chunks based on a given query.
@@ -44,7 +52,7 @@ async def run_task_handler_chain(state: PlanExecute):
         input_variables=["curr_task", "aggregated_context", "last_tool", "past_steps", "question"],
     )
 
-    task_handler_llm = ChatOpenAI(temperature=0, model_name="gpt-4", max_tokens=2000)
+    task_handler_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=2000)
     task_handler_chain = task_handler_prompt | task_handler_llm.with_structured_output(TaskHandlerOutput)
 
     if not state["plan"]:
