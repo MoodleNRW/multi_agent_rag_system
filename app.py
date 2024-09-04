@@ -74,7 +74,6 @@ async def process_message(message_content: str):
 async def update_ui(step_output):
     current_state = step_output.get("curr_state", "")
     
-    print("UPDATE UI", step_output)
     if current_state in ["retrieve_chunks", "retrieve_summaries", "retrieve_quotes"]:
         await cl.Message(content=f"Retrieving information: {current_state}").send()
     elif current_state == "answer":
