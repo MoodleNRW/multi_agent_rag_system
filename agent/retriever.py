@@ -31,7 +31,7 @@ async def run_qualitative_chunks_retrieval_workflow(state: PlanExecute):
     docs = response['data']['Get']['Content_chunks']
     
     # Filter out empty content
-    retrieved_info = " ".join(f"{doc['url']}: {doc['content']}" for doc in docs if doc.get('content') and doc['content'].strip())
+    retrieved_info = " ".join(f"{doc['url']}: {doc['content_chunk']}" for doc in docs if doc.get('content_chunk') and doc['content_chunk'].strip())
     
     state["curr_context"] += f"Retrieved chunk information: {retrieved_info}"
     state["aggregated_context"] += state["curr_context"]
@@ -60,7 +60,7 @@ async def run_qualitative_summaries_retrieval_workflow(state: PlanExecute):
     docs = response['data']['Get']['Content_summary']
     
     # Filter out empty content
-    retrieved_info = " ".join(f"{doc['url']}: {doc['content']}" for doc in docs if doc.get('content') and doc['content'].strip())
+    retrieved_info = " ".join(f"{doc['url']}: {doc['content_summary']}" for doc in docs if doc.get('content_summary') and doc['content_summary'].strip())
     
     state["curr_context"] += f"Retrieved chunk information: {retrieved_info}"
     state["aggregated_context"] += state["curr_context"]
