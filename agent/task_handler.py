@@ -8,9 +8,9 @@ from langchain_core.pydantic_v1 import BaseModel, Field
 
 class TaskHandlerOutput(BaseModel):
     """Output schema for the task handler."""
-    query: str = Field(description="The query to be either retrieved from the vector store, or the question that should be answered from context.")
-    curr_context: str = Field(description="The context to be based on in order to answer the query.")
-    tool: str = Field(description="The tool to be used should be either retrieve_chunks, retrieve_summaries, retrieve_quotes, or answer_from_context.")
+    query: str = Field(description="The query to be either retrieved from the vector store, the question that should be answered from context or to be used to create a moodle course.")
+    curr_context: str = Field(description="The context to be based on in order to answer the query or create a moodle course.")
+    tool: str = Field(description="The tool to be used should be either retrieve_chunks, retrieve_summaries, retrieve_quotes, answer_from_context or create_moodle_course.")
 
 @cl.step(name="Task Handler", type="process")
 async def run_task_handler_chain(state: PlanExecute):
@@ -24,6 +24,8 @@ async def run_task_handler_chain(state: PlanExecute):
     - use Tool C when you think the current task should search for information in the quotes.
     Tool D: a tool that answers a question from a given context.
     - use Tool D ONLY when you think the current task can be answered by the aggregated context {aggregated_context}
+    Tool E: a tool that creates a moodle course. You have to provide the context for the moodle course. You dont need to use retrieve_chunks, retrieve_summaries, retrieve_quotes, or answer_from_context if you choose this tool.
+    - use Tool E when you think the current task should create a moodle course based on the context.
 
     You also receive the last tool used {last_tool}
     If {last_tool} was retrieve_chunks, use other tools than Tool A.
@@ -32,6 +34,7 @@ async def run_task_handler_chain(state: PlanExecute):
     You also have the initial user's question {question} that you can use to make decisions and understand the context of the task.
     If you decide to use Tools A, B or C, output the query to be used for the tool and also output the relevant tool.
     If you decide to use Tool D, output the question to be used for the tool, the context, and also that the tool to be used is Tool D.
+    If you decide to use Tool E, output the context and also that the tool to be used is Tool E.
 
     Output your decision in JSON format.
     """

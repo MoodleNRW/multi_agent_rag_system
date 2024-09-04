@@ -12,6 +12,7 @@ from .state import PlanExecute
 from .anonymizer import anonymize_queries, deanonymize_queries
 from .task_handler import run_task_handler_chain
 from .retriever import run_qualitative_chunks_retrieval_workflow, run_qualitative_summaries_retrieval_workflow, run_qualitative_quotes_retrieval_workflow
+from .tools import run_moodle_tool_workflow
 from .answerer import run_qualtative_answer_workflow, run_qualtative_answer_workflow_for_final_answer
 from .verifier import can_be_answered
 
@@ -27,6 +28,7 @@ async def create_agent_graph():
     agent_workflow.add_node("retrieve_chunks", run_qualitative_chunks_retrieval_workflow)
     agent_workflow.add_node("retrieve_summaries", run_qualitative_summaries_retrieval_workflow)
     agent_workflow.add_node("retrieve_quotes", run_qualitative_quotes_retrieval_workflow)
+    agent_workflow.add_node("call_moodle_tool", run_moodle_tool_workflow)
     agent_workflow.add_node("answer", run_qualtative_answer_workflow)
     agent_workflow.add_node("replan", replan_step)
     agent_workflow.add_node("get_final_answer", run_qualtative_answer_workflow_for_final_answer)
@@ -48,6 +50,7 @@ async def create_agent_graph():
             "chosen_tool_is_retrieve_chunks": "retrieve_chunks",
             "chosen_tool_is_retrieve_summaries": "retrieve_summaries",
             "chosen_tool_is_retrieve_quotes": "retrieve_quotes",
+            "chose_tool_is_create_moodle_course": "call_moodle_tool",
             "chosen_tool_is_answer": "answer"
         }
     )
@@ -116,6 +119,7 @@ async def break_down_plan_step(state: PlanExecute):
         ii. retrieving relevant information from a vector store of chapter summaries
         iii. retrieving relevant information from a vector store of quotes
         iv. answering a question from a given context.
+        v. creating a moodle course.
     2. Every step should contain all the information needed to execute it.
     3. Break down any step that is too broad or complex into multiple, more specific steps.
     4. Ensure that the steps are in a logical order and build upon each other.
@@ -180,14 +184,22 @@ async def replan_step(state: PlanExecute):
 
 @cl.step(name="Decide Retrieval or Answer", type="process")
 async def retrieve_or_answer(state: PlanExecute):
-    # Implementation of retrieve or answer decision
-    # This is where you would implement the logic to decide whether to retrieve more information or answer
-    if "Retrieve" in state["plan"][0]:
-        if "chunks" in state["plan"][0]:
-            return "chosen_tool_is_retrieve_chunks"
-        elif "summaries" in state["plan"][0]:
-            return "chosen_tool_is_retrieve_summaries"
-        else:
-            return "chosen_tool_is_retrieve_quotes"
-    else:
+    """Decide whether to retrieve or answer the question based on the current state.
+    Args:
+        state: The current state of the plan execution.
+    Returns:
+        updates the tool to use .
+    """
+    state["curr_state"] = "decide_tool"
+    if state["tool"] == "retrieve_chunks":
+        return "chosen_tool_is_retrieve_chunks"
+    elif state["tool"] == "retrieve_summaries":
+        return "chosen_tool_is_retrieve_summaries"
+    elif state["tool"] == "retrieve_quotes":
+        return "chosen_tool_is_retrieve_quotes"
+    elif state["tool"] == "create_moodle_course":
+        return "chose_tool_is_create_moodle_course"
+    elif state["tool"] == "answer":
         return "chosen_tool_is_answer"
+    else:
+        raise ValueError("Invalid tool was outputed. Must be either 'retrieve' or 'answer_from_context'")  

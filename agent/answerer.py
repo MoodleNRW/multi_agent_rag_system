@@ -7,6 +7,8 @@ from langchain.prompts import PromptTemplate
 
 @cl.step(name="Generate Answer", type="tool")
 async def run_qualtative_answer_workflow(state: PlanExecute):
+    """Generates an answer to a given question based on the provided context."""
+    
     answer_prompt_template = """Based on the following context, please answer the question.
     Context: {context}
     Question: {question}
