@@ -23,7 +23,7 @@ API_KEY = os.getenv('OPENAI_API_KEY')
 weaviate_client = weaviate.Client("http://localhost:8090", additional_headers = {
         "X-OpenAI-Api-Key": API_KEY
     })
-if weaviate_client.schema.exists("Content"):
+if not weaviate_client.schema.exists("Content"):
     class_obj = {
         "class": "Content",
         "vectorizer": "text2vec-openai",  # If set to "none" you must always provide vectors yourself. Could be any other "text2vec-*" also.
