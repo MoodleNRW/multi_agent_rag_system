@@ -6,11 +6,33 @@ import sys
 import os
 import time
 import threading
+import weaviate
+from langchain_community.vectorstores import Weaviate
+import weaviate.classes as wvc
+from datetime import datetime
+import dotenv
+dotenv.load_dotenv()
 
 # Globals for progress tracking
 total_pages = 0
 completed_pages = 0
 lock = threading.Lock()
+API_KEY = os.getenv('OPENAI_API_KEY')
+
+# Initialize the Weaviate client
+weaviate_client = weaviate.Client("http://localhost:8090", additional_headers = {
+        "X-OpenAI-Api-Key": API_KEY
+    })
+if not weaviate_client.schema.exists("Content"):
+    class_obj = {
+        "class": "Content",
+        "vectorizer": "text2vec-openai",  # If set to "none" you must always provide vectors yourself. Could be any other "text2vec-*" also.
+        "moduleConfig": {
+            "text2vec-openai": {},
+            "generative-openai": {}  # Ensure the `generative-openai` module is used for generative queries
+        }
+    }
+    weaviate_client.schema.create_class(class_obj)
 
 def scrape_text(url):
     try:
@@ -82,7 +104,7 @@ def scrape_website(url, visited=None, max_workers=10, depth=10):
             pages_to_scrape = []
             for future in as_completed(futures):
                 if depth==0:
-                    return '\n'.join([f"# Page: {url}\n\n{text}\n" for url, text in results])
+                    break
                 subpages, text = future.result()
                 depth = depth - 1;
                 results.append((futures[future], text))
@@ -91,6 +113,44 @@ def scrape_website(url, visited=None, max_workers=10, depth=10):
                 for subpage in subpages:
                     if subpage not in visited:
                         pages_to_scrape.append(subpage)
+            else:
+                continue
+            break
+    
+
+    # Save content in weaviate
+    weaviate_client.batch.configure(batch_size=10)  # Configure batch
+    with weaviate_client.batch as batch:  # Initialize a batch process
+        for url, text in results:  # Batch import data
+            print(f"importing content")
+            where_filter = {
+                "path": ["url"],
+                "operator": "Equal",
+                "valueString": url
+            }
+            # Check if url already exists
+            obj = weaviate_client.query.get("Content","url").with_where(where_filter).with_additional('id').do()
+            properties = {
+                "url": url,
+                "content": text,
+                "date": datetime.now().isoformat(),
+            }
+            # if not create new object
+            if not obj['data']['Get']['Content']:
+                batch.add_data_object(
+                    data_object=properties,
+                    class_name="Content"
+                )
+            # else update existing
+            else:
+                weaviate_client.data_object.update(
+                    uuid=obj['data']['Get']['Content'][0]['_additional']['id'],
+                    class_name="Content",
+                    data_object={
+                        "content": text,
+                        "date": datetime.now().isoformat(),
+                    },
+                )
 
     return '\n'.join([f"# Page: {url}\n\n{text}\n" for url, text in results])
 

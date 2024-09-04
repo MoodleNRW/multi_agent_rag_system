@@ -9,9 +9,9 @@
 
 ## Einführung
 
-Diese Chainlit-Anwendung ist eine interaktive Chat-Schnittstelle, die sich mit einer OpenAI-kompatiblen API von GWDG (Gesellschaft für wissenschaftliche Datenverarbeitung mbH Göttingen) verbindet. Sie ermöglicht Benutzern die Interaktion mit verschiedenen KI-Modellen und bietet eine flexible Möglichkeit zur Verwaltung von Einstellungen und Konfigurationen.
+Das Multi-Agent-RAG-System (Retrieval Augmented Generation-System) für Moodle-Dokumentation und Code beantwortet automatisch Supportanfragen und unterstützt bei der Entwicklung. Es crawlt die Moodle Docs, um auf Anfragen in Echtzeit zu reagieren. Für komplexere Fälle erstellt es automatisch Tickets und leitet diese an die entsprechenden Experten weiter. 
 
-**Bitte beachten Sie, dass es sich um einen Prototyp handelt, der zu Lernzwecken in der AG KI in Moodle vom Moodle an Hochschulen e.V. dient. Eine Verwendung in Produktivumgebungen wird nicht empfohlen.**
+**Bitte beachten Sie, dass es sich um einen Prototyp handelt, der während des DevCamps der MoodleMoot DACH 2024 entstanden ist. Eine Verwendung in Produktivumgebungen wird derzeit nicht empfohlen.**
 
 ## Installation
 
