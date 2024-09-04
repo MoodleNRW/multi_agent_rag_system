@@ -68,30 +68,29 @@ async def process_message(message_content: str):
     
     # Send the final response
     final_response = step_output.get("response", "I couldn't generate a response. Please try rephrasing your question.")
-    await cl.Message(content=final_response).send()
+    cl.Message(content=final_response).send()
 
-@cl.step(name="Update UI", type="ui")
 async def update_ui(step_output):
     current_state = step_output.get("curr_state", "")
     
     if current_state in ["retrieve_chunks", "retrieve_summaries", "retrieve_quotes"]:
-        await cl.Message(content=f"Retrieving information: {current_state}").send()
+        cl.Message(content=f"Retrieving information: {current_state}").send()
     elif current_state == "answer":
-        await cl.Message(content="Generating answer based on retrieved information...").send()
+        cl.Message(content="Generating answer based on retrieved information...").send()
     elif current_state == "planner":
-        await cl.Message(content="Planning next steps...").send()
+        cl.Message(content="Planning next steps...").send()
     elif current_state == "anonymize_question":
-        await cl.Message(content="Anonymizing the question...").send()
+        cl.Message(content="Anonymizing the question...").send()
     elif current_state == "de_anonymize_plan":
-        await cl.Message(content="De-anonymizing the plan...").send()
+        cl.Message(content="De-anonymizing the plan...").send()
     elif current_state == "break_down_plan":
-        await cl.Message(content="Breaking down the plan into smaller steps...").send()
+        cl.Message(content="Breaking down the plan into smaller steps...").send()
     elif current_state == "task_handler":
-        await cl.Message(content="Deciding on the next action...").send()
+        cl.Message(content="Deciding on the next action...").send()
     elif current_state == "replan":
-        await cl.Message(content="Adjusting the plan based on new information...").send()
+        cl.Message(content="Adjusting the plan based on new information...").send()
     elif current_state == "get_final_answer":
-        await cl.Message(content="Preparing the final answer...").send()
+        cl.Message(content="Preparing the final answer...").send()
 
     # You can add more detailed logging here if needed
     cl.Task(title=current_state, status=cl.TaskStatus.RUNNING)

@@ -2,7 +2,7 @@
 chainlit
 
 #Backend
-langchain-core
+langchain_core
 langgraph
 langchain-community
 langchain-openai
