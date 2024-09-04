@@ -27,8 +27,8 @@ async def run_qualitative_chunks_retrieval_workflow(state: PlanExecute):
         "X-OpenAI-Api-Key": API_KEY
     })
 
-    response = weaviate_client.query.get("Content",["url","content"]).with_near_text({"concepts": [query]}).with_limit(4).with_additional(["distance"]).do()
-    docs = response['data']['Get']['Content']
+    response = weaviate_client.query.get("Content_chunks",["url","content"]).with_near_text({"concepts": [query]}).with_limit(4).with_additional(["distance"]).do()
+    docs = response['data']['Get']['Content_chunks']
     
     # Filter out empty content
     retrieved_info = " ".join(f"{doc['url']}: {doc['content']}" for doc in docs if doc.get('content') and doc['content'].strip())
@@ -56,8 +56,8 @@ async def run_qualitative_summaries_retrieval_workflow(state: PlanExecute):
         "X-OpenAI-Api-Key": API_KEY
     })
 
-    response = weaviate_client.query.get("Content",["url","content"]).with_near_text({"concepts": [query]}).with_limit(4).with_additional(["distance"]).do()
-    docs = response['data']['Get']['Content']
+    response = weaviate_client.query.get("Content_summary",["url","content"]).with_near_text({"concepts": [query]}).with_limit(4).with_additional(["distance"]).do()
+    docs = response['data']['Get']['Content_summary']
     
     # Filter out empty content
     retrieved_info = " ".join(f"{doc['url']}: {doc['content']}" for doc in docs if doc.get('content') and doc['content'].strip())
