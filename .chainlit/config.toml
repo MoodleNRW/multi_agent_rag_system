@@ -53,7 +53,7 @@ edit_message = true
 
 [UI]
 # Name of the assistant.
-name = "Assistant"
+name = "Moodle KI-Chat Support"
 
 # Description of the assistant. This is used for HTML tags.
 # description = ""
@@ -87,21 +87,21 @@ cot = "full"
 # custom_build = "./public/build"
 
 [UI.theme]
-    default = "dark"
+    default = "light"
     #layout = "wide"
-    #font_family = "Inter, sans-serif"
+    #font_family = "sans-serif, Inter"
 # Override default MUI light theme. (Check theme.ts)
 [UI.theme.light]
-    #background = "#FAFAFA"
+    #background = "#FFFFFF"
     #paper = "#FFFFFF"
 
     [UI.theme.light.primary]
-        #main = "#F80061"
-        #dark = "#980039"
-        #light = "#FFE7EB"
+        #main = "#2F6CB9"
+        #dark = "#1C4474"
+        #light = "#F2E7FF"
     [UI.theme.light.text]
-        #primary = "#212121"
-        #secondary = "#616161"
+        #primary = "#818181"
+        #secondary = "#5b5b5f"
 
 # Override default MUI dark theme. (Check theme.ts)
 [UI.theme.dark]

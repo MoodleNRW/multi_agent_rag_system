@@ -20,11 +20,11 @@ async def can_be_answered(state: PlanExecute):
 
     Your task:
     1. Carefully analyze the question and the provided context.
-    2. Determine if the context contains enough information to fully answer the original question.
+    2. Determine if the context contains enough information to fully answer the original question. If a moodle_course is created, the question can be answered.
     3. Provide a yes/no decision and a brief explanation for your decision.
 
     Remember:
-    - The context must contain all necessary information to provide a complete and accurate answer.
+    - The context must contain all necessary information to provide a complete and accurate answer. If a moodle_course is created, the question can be answered and the context is considered complete.
     - If any crucial information is missing, or if the context only allows for a partial answer, consider it as not fully answerable.
 
     Output your decision and explanation in JSON format.

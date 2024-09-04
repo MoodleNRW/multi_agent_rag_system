@@ -36,11 +36,8 @@ async def anonymize_queries(state: PlanExecute):
         partial_variables={"format_instructions": anonymize_question_parser.get_format_instructions()
         },
     )
-    print("TEST")
-    print(anonymize_question_parser.get_format_instructions())
-    print(anonymize_question_prompt)
 
-    anonymize_question_llm = ChatOpenAI(temperature=0, model_name="gpt-4", max_tokens=4000, )
+    anonymize_question_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000, )
     anonymize_question_chain = anonymize_question_prompt | anonymize_question_llm | anonymize_question_parser
 
     print(state["question"])
