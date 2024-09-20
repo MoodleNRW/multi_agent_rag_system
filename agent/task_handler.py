@@ -2,7 +2,7 @@
 
 import chainlit as cl
 from .state import PlanExecute
-from langchain_openai import ChatOpenAI 
+from models.models_wrapper import get_llm
 from langchain.prompts import PromptTemplate
 from langchain_core.pydantic_v1 import BaseModel, Field
 
@@ -52,8 +52,8 @@ async def run_task_handler_chain(state: PlanExecute):
         input_variables=["curr_task", "aggregated_context", "last_tool", "past_steps", "question"],
     )
 
-    task_handler_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
-    task_handler_chain = task_handler_prompt | task_handler_llm.with_structured_output(TaskHandlerOutput)
+    task_handler_llm = get_llm()
+    task_handler_chain = task_handler_prompt | task_handler_llm.with_structured_output(TaskHandlerOutput,  strict = True)
 
     if not state["plan"]:
         # If there are no more steps in the plan, we're done

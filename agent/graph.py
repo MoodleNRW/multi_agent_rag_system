@@ -2,7 +2,7 @@
 
 import chainlit as cl
 from langgraph.graph import StateGraph, END
-from langchain_openai import ChatOpenAI 
+from models.models_wrapper import get_llm
 from langchain.prompts import PromptTemplate
 
 from langchain_core.pydantic_v1 import BaseModel, Field
@@ -109,9 +109,9 @@ async def plan_step(state: PlanExecute):
         input_variables=["question"], 
     )
 
-    planner_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
+    planner_llm = get_llm()
 
-    planner = planner_prompt | planner_llm.with_structured_output(Plan)
+    planner = planner_prompt | planner_llm.with_structured_output(Plan, strict = True)
 
     result = planner.invoke({"question": state["anonymized_question"]})
 
@@ -151,8 +151,8 @@ async def break_down_plan_step(state: PlanExecute):
         input_variables=["plan"],
     )
 
-    break_down_plan_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
-    break_down_plan_chain = break_down_plan_prompt | break_down_plan_llm.with_structured_output(Plan)
+    break_down_plan_llm = get_llm()
+    break_down_plan_chain = break_down_plan_prompt | break_down_plan_llm.with_structured_output(Plan,  strict = True)
 
     result = break_down_plan_chain.invoke({"plan": state["plan"]})
 
@@ -190,8 +190,8 @@ async def replan_step(state: PlanExecute):
         input_variables=["question", "plan", "past_steps", "aggregated_context"],
     )
 
-    replan_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
-    replan_chain = replan_prompt | replan_llm.with_structured_output(Plan)
+    replan_llm = get_llm()
+    replan_chain = replan_prompt | replan_llm.with_structured_output(Plan,  strict = True)
 
     result = replan_chain.invoke({
         "question": state["question"],

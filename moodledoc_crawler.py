@@ -12,9 +12,9 @@ import os
 import time
 import threading
 import weaviate
-from langchain_openai import ChatOpenAI 
 from datetime import datetime
 import dotenv
+from models.models_wrapper import get_llm
 dotenv.load_dotenv()
 
 # Globals for progress tracking
@@ -237,7 +237,7 @@ def scrape_website(url, visited=None, max_workers=10, depth=10):
             docs = [Document(page_content=text)]
             if not text:
                 break
-            llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=2000)
+            llm = get_llm()
             # Define prompt
             prompt_template = "Summarize this content: {context}"
             prompt = ChatPromptTemplate.from_template(prompt_template)

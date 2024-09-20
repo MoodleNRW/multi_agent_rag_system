@@ -11,5 +11,8 @@ typing
 requests
 beautifulsoup4
 
+#Evaluation
+langsmith
+
 #Vectorization
 langchain-weaviate

@@ -3,7 +3,7 @@ from langchain_weaviate.vectorstores import WeaviateVectorStore
 import weaviate
 
 def create_retrievers():
-
+    # todo work in progress -> Retriever selbst schreiben / vs query?
     return None, None, None
 #     embeddings = OpenAIEmbeddings()
     

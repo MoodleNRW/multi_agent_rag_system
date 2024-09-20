@@ -1,6 +1,6 @@
 import chainlit as cl
 from .state import PlanExecute
-from langchain_openai import ChatOpenAI 
+from models.models_wrapper import get_llm
 from langchain.prompts import PromptTemplate
 from langchain_core.pydantic_v1 import BaseModel, Field
 
@@ -33,8 +33,8 @@ async def can_be_answered(state: PlanExecute):
         input_variables=["question", "context"],
     )
 
-    can_be_answered_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=2000)
-    can_be_answered_chain = can_be_answered_prompt | can_be_answered_llm.with_structured_output(CanBeAnsweredOutput)
+    can_be_answered_llm = get_llm()
+    can_be_answered_chain = can_be_answered_prompt | can_be_answered_llm.with_structured_output(CanBeAnsweredOutput ,  strict = True)
 
     result = can_be_answered_chain.invoke({
         "question": state["question"],

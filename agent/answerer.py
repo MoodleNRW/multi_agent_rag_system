@@ -2,7 +2,7 @@
 
 import chainlit as cl
 from .state import PlanExecute
-from langchain_openai import ChatOpenAI 
+from models.models_wrapper import get_llm
 from langchain.prompts import PromptTemplate
 
 @cl.step(name="Generate Answer", type="tool")
@@ -20,7 +20,7 @@ async def run_qualtative_answer_workflow(state: PlanExecute):
         input_variables=["context", "question"],
     )
 
-    answer_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=2000)
+    answer_llm = get_llm()
     answer_chain = answer_prompt | answer_llm
 
     response = answer_chain.invoke({
@@ -49,7 +49,7 @@ async def run_qualtative_answer_workflow_for_final_answer(state: PlanExecute):
         input_variables=["question", "aggregated_context"],
     )
 
-    final_answer_llm = ChatOpenAI(temperature=0, model_name="gpt-4o", max_tokens=4000)
+    final_answer_llm = get_llm()
     final_answer_chain = final_answer_prompt | final_answer_llm
 
     response = final_answer_chain.invoke({
