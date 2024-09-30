@@ -71,8 +71,14 @@ async def run_task_handler_chain(state: PlanExecute):
     })
 
     state["query_to_retrieve_or_answer"] = result.query
-    state["curr_context"] = result.curr_context
-    state["tool"] = result.tool
+
+    if result.tool == "answer_from_context":
+        state["curr_context"] = result.curr_context  
+        state["tool"] = "answer"
+    else:
+        state["tool"] = result.tool
+
+         
     state["past_steps"].append(curr_task)
 
     # Log the decision for debugging

@@ -97,8 +97,9 @@ async def plan_step(state: PlanExecute):
     state["curr_state"] = "planner"
 
     planner_prompt = """For the given query {question}, come up with a simple step by step plan of how to figure out the answer. 
-
+    
     This plan should involve individual tasks, that if executed correctly will yield the correct answer. Do not add any superfluous steps. 
+    If the question is very simple and can be answered directly, the plan should only include a single step to answer the question.
     The result of the final step should be the final answer. Make sure that each step has all the information needed - do not skip steps.
 
     Output the plan as a list of steps in JSON format.
