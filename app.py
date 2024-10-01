@@ -1,9 +1,11 @@
 import os
 import chainlit as cl
+from agent.support_summary_generator import support_summary_step
 from config.config_manager import ConfigManager
 from agent.state import PlanExecute
 from agent.graph import compile_workflow
 from vector_stores.retriever import create_retrievers
+from langgraph.pregel import GraphRecursionError
 
 # Initialize ConfigManager
 config_manager = ConfigManager()
@@ -63,12 +65,25 @@ async def process_message(message_content: str):
     )
     
     # Execute the workflow
-    async for step_output in workflow.astream(initial_state):
-        first_key = next(iter(step_output))
-        await update_ui(step_output[first_key])
+    config = {"recursion_limit": 15}
+    try:
+   
+        async for step_output in workflow.astream(initial_state, config=config):
+            last_key = next(iter(step_output))
+            await update_ui(step_output[last_key])
+    except GraphRecursionError:
+        res = await support_summary_step(step_output[last_key])
+        print(res)
+        await cl.Message(content="The workflow has reached the recursion limit.").send()
+        await cl.Message(content=res).send()
+
+        
+        return
+
+        
     
     # Send the final response
-    final_response = step_output[first_key].get("response", "I couldn't generate a response. Please try rephrasing your question.")
+    final_response = step_output[last_key].get("response", "I couldn't generate a response. Please try rephrasing your question.")
     await cl.Message(content=final_response).send()
 
 async def update_ui(step_output):
