@@ -7,7 +7,12 @@ from agent.graph import compile_workflow
 from vector_stores.retriever import create_retrievers
 from langgraph.pregel import GraphRecursionError
 from utils.graph_visualization import display_graph 
+import subprocess
+import logging
 
+# Konfiguriere Logger
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Initialize ConfigManager
 config_manager = ConfigManager()
@@ -20,15 +25,88 @@ async def start():
     await chat_settings.send()
     
     # Initialize vector store retrievers
-    chunks_retriever, summaries_retriever, quotes_retriever = create_retrievers()
-    cl.user_session.set("retrievers", {
-        "chunks": chunks_retriever,
-        "summaries": summaries_retriever,
-        "quotes": quotes_retriever
-    })
+    try:
+        chunks_retriever, summaries_retriever, quotes_retriever = create_retrievers()
+        cl.user_session.set("retrievers", {
+            "chunks": chunks_retriever,
+            "summaries": summaries_retriever,
+            "quotes": quotes_retriever
+        })
+        
+        # Send welcome message
+        await cl.Message(content="Willkommen! Ich bin bereit, Ihre Fragen über Moodle zu beantworten ✅. Was möchten Sie wissen oder tun?").send()
+    except Exception as e:
+        error_message = str(e)
+        logger_message = f"Fehler beim Initialisieren der Retriever: {error_message}"
+        logger.error(logger_message)
+        
+        if "insufficient data" in error_message.lower():
+            await show_crawler_option()
+        else:
+            await cl.Message(content=f"Bei der Initialisierung ist ein Fehler aufgetreten: {error_message}. Bitte überprüfen Sie die Verbindung zur Vektordatenbank.").send()
+
+async def show_crawler_option():
+    """Zeigt eine Schaltfläche zum Ausführen des Crawlers an, wenn nicht genügend Daten vorhanden sind."""
+    msg = cl.Message(content="Es sind nicht genügend Daten in der Datenbank vorhanden. Möchten Sie den Web Crawler ausführen, um Moodle-Dokumentation zu sammeln?")
     
-    # Send welcome message
-    await cl.Message(content="Welcome! I'm ready to answer your questions about Moodle ✅. What would you like to know or do?").send()
+    actions = [
+        cl.Action(name="run_crawler", value="run", label="Crawler ausführen")
+    ]
+    
+    await msg.send(actions=actions)
+
+@cl.action_callback("run_crawler")
+async def on_run_crawler(action):
+    """Callback für die Crawler-Ausführung."""
+    await action.remove()
+    
+    status_msg = cl.Message(content="Starte den Web Crawler... Dies kann einige Minuten dauern.")
+    await status_msg.send()
+    
+    try:
+        # Standard Moodle Dokumentationsseite
+        url = "https://docs.moodle.org/dev/Main_Page"
+        depth = 50  # Begrenzung der Anzahl der Seiten
+        
+        # Führe den Crawler in einem separaten Prozess aus
+        process = subprocess.Popen(
+            ["python", "moodledoc_crawler.py", url, str(depth)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=os.path.dirname(os.path.abspath(__file__))  # Stelle sicher, dass der richtige Arbeitsverzeichnispfad verwendet wird
+        )
+        
+        update_msg = cl.Message(content="Der Crawler läuft und sammelt Daten... Bitte warten Sie.")
+        await update_msg.send()
+        
+        # Warte auf den Abschluss des Prozesses
+        stdout, stderr = process.communicate()
+        
+        if process.returncode == 0:
+            success_msg = cl.Message(content="Der Crawler wurde erfolgreich ausgeführt. Daten wurden in die Vektordatenbank geladen.")
+            await success_msg.send()
+            
+            try:
+                # Initialisiere die Retriever nach dem Crawling
+                chunks_retriever, summaries_retriever, quotes_retriever = create_retrievers()
+                cl.user_session.set("retrievers", {
+                    "chunks": chunks_retriever,
+                    "summaries": summaries_retriever,
+                    "quotes": quotes_retriever
+                })
+                
+                await cl.Message(content="Willkommen! Ich bin bereit, Ihre Fragen über Moodle zu beantworten ✅. Was möchten Sie wissen oder tun?").send()
+            except Exception as e:
+                logger.error(f"Fehler beim Neuinitialisieren der Retriever: {str(e)}")
+                await cl.Message(content=f"Der Crawler wurde ausgeführt, aber es gab ein Problem beim Laden der Daten. Bitte starten Sie die Anwendung neu.").send()
+        else:
+            logger.error(f"Crawler-Fehler: {stderr}")
+            await cl.Message(content=f"Bei der Ausführung des Crawlers ist ein Fehler aufgetreten.\nStdout: {stdout}\nStderr: {stderr}").send()
+    
+    except Exception as e:
+        logger.error(f"Fehler beim Ausführen des Crawlers: {str(e)}")
+        await cl.Message(content=f"Bei der Ausführung des Crawlers ist ein Fehler aufgetreten: {str(e)}").send()
 
 @cl.on_settings_update
 async def update_settings(settings):

@@ -289,24 +289,33 @@ def generate_output_filename(url):
     return filename
 
 def main():
+    """
+    Hauptfunktion, die den Crawler-Prozess startet.
+    
+    Die Funktion verarbeitet Befehlszeilenargumente:
+    - sys.argv[1]: Website-URL zum Crawlen
+    - sys.argv[2] (optional): Maximale Anzahl von Seiten (Tiefe)
+    
+    Wenn keine Befehlszeilenargumente übergeben werden, fragt sie den Benutzer nach Eingaben.
+    """
     if len(sys.argv) > 1:
         website_url = sys.argv[1]
+        
+        # Wenn ein zweites Argument vorhanden ist, verwende es als Tiefenwert
+        depth = int(sys.argv[2]) if len(sys.argv) > 2 else 50
     else:
         website_url = input("Geben Sie eine Webseite ein, um das Scraping zu beginnen: ")
         depth = int(input("Geben Sie eine maximale Anzahl an Seiten an die ausgelesen werden soll: "))
 
-    #output_file = generate_output_filename(website_url)
-
-    print(f"Starting the scraping process for: {website_url}")
+    print(f"Starte den Scraping-Prozess für: {website_url}")
+    print(f"Maximale Anzahl der Seiten: {depth}")
     start_time = time.time()
     scrape_website(website_url, depth=depth)
 
-    #with open(output_file, 'w', encoding='utf-8') as file:
-    #    file.write(scraped_text)
-
     elapsed_time = time.time() - start_time
-    #print(f"\nScraped text has been saved to {output_file}")
-    print(f"Total time taken: {elapsed_time:.2f} seconds")
+    print(f"Gesamtzeit: {elapsed_time:.2f} Sekunden")
+    print(f"Der Scraping-Prozess wurde abgeschlossen. Die Daten wurden in die Vektordatenbank geladen.")
+    return 0  # Erfolgreicher Abschluss
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

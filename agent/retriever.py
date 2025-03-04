@@ -88,7 +88,7 @@ async def run_qualitative_quotes_retrieval_workflow(state: PlanExecute):
     docs = response['data']['Get']['Content_chunk']
     
     # Filter out empty content
-    retrieved_info = " ".join(f"{doc['url']}: {doc['content_chunk']}" for doc in docs if doc.get('content') and doc['content'].strip())
+    retrieved_info = " ".join(f"{doc['url']}: {doc['content_chunk']}" for doc in docs if doc.get('content_chunk') and doc['content_chunk'].strip())
     
     state["curr_context"] += f"Retrieved chunk information: {retrieved_info}"
     state["aggregated_context"] += state["curr_context"]
