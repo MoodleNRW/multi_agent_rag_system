@@ -59,6 +59,7 @@ async def create_agent_graph():
     agent_workflow.add_edge("retrieve_summaries", "replan")
     agent_workflow.add_edge("retrieve_quotes", "replan")
     agent_workflow.add_edge("answer", "replan")
+    agent_workflow.add_edge("call_moodle_tool", "replan")
 
     agent_workflow.add_conditional_edges(
         "replan",

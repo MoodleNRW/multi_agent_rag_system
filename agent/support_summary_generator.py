@@ -52,7 +52,8 @@ Der aktuelle Prozess befindet sich im Zustand "{curr_state}".
 
 {suggestions}
 
-Bitte stelle diese Zusammenfassung in Markdown-Format bereit, wobei die Struktur wie oben bleibt. Wenn möglich, füge relevante retrievte Texte hinzu, die bei der Beantwortung der Frage helfen.
+Bitte stelle diese Zusammenfassung bereit, wobei die Struktur wie oben bleibt. Nutze Formatierungen, um die Informationen klar und präzise darzustellen.
+Wenn möglich, füge relevante retrievte Texte hinzu, die bei der Beantwortung der Frage helfen.
 
 """
 

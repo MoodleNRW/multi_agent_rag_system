@@ -6,6 +6,8 @@ from agent.state import PlanExecute
 from agent.graph import compile_workflow
 from vector_stores.retriever import create_retrievers
 from langgraph.pregel import GraphRecursionError
+from utils.graph_visualization import display_graph 
+
 
 # Initialize ConfigManager
 config_manager = ConfigManager()
@@ -49,7 +51,8 @@ async def main(message: cl.Message):
 async def process_message(message_content: str):
     # Compile the workflow
     workflow = await compile_workflow()
-    
+    # Visualize the workflow
+    display_graph(workflow)
     # Initialize the state
     initial_state = PlanExecute(
         question=message_content,
@@ -65,7 +68,7 @@ async def process_message(message_content: str):
     )
     
     # Execute the workflow
-    config = {"recursion_limit": 15}
+    config = {"recursion_limit": 25}
     try:
    
         async for step_output in workflow.astream(initial_state, config=config):
