@@ -17,3 +17,8 @@ IPython
 
 #Vectorization
 langchain-weaviate
+weaviate-client>=4.7.1
+
+#Visualization & Data
+pandas
+plotly

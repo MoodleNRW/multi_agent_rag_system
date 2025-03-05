@@ -4,6 +4,7 @@
 - [Einführung](#einführung)
 - [Installation](#installation)
 - [Benutzung](#benutzung)
+- [Daten-Crawler](#daten-crawler)
 - [Abhängigkeiten](#abhängigkeiten)
 - [Beitragen](#beitragen)
 
@@ -43,6 +44,12 @@ Um die Chainlit-Anwendung auf Ihrem Rechner zu installieren und einzurichten, fo
     pip install -U -r requirements.txt
     ```
 
+6. Starten Sie die Weaviate-Vektordatenbank über Docker:
+
+    ```bash
+    docker-compose up -d
+    ```
+
 ## Benutzung
 
 Nach der Installation des Projekts können Sie die Chainlit-Anwendung starten:
@@ -53,14 +60,38 @@ chainlit run app.py
 
 Die Anwendung wird dann in Ihrem Standard-Webbrowser geöffnet. Sie können die Einstellungen über die Benutzeroberfläche anpassen, einschließlich des API-Schlüssels, der Temperatur, der maximalen Token-Anzahl und des zu verwendenden Modells.
 
+### Fehlerbehebung
+
+Wenn keine ausreichenden Daten in der Vektordatenbank vorhanden sind, wird die Anwendung automatisch eine Schaltfläche anzeigen, mit der Sie den Moodle-Docs-Crawler starten können. Dies sammelt die notwendigen Daten und speichert sie in der Weaviate-Datenbank.
+
+## Daten-Crawler
+
+Das System verfügt über einen integrierten Web-Crawler, der speziell für die Moodle-Dokumentation optimiert ist. Sie können den Crawler manuell ausführen, um die Vektordatenbank mit aktuellen Daten zu füllen:
+
+```bash
+python moodledoc_crawler.py https://docs.moodle.org/dev/Main_Page 50
+```
+
+Parameter:
+- URL der zu crawlenden Webseite (z.B. Moodle-Dokumentation)
+- Maximale Anzahl der zu crawlenden Seiten (Tiefe)
+
+Der Crawler wird automatisch die folgenden Schritte ausführen:
+1. Sammeln aller relevanten Texte aus der Moodle-Dokumentation
+2. Aufteilen der Texte in Chunks
+3. Erstellen von Zusammenfassungen für jeden Abschnitt
+4. Speichern der Daten in der Weaviate-Vektordatenbank
+
 ## Abhängigkeiten
 
 Die Chainlit-Anwendung benötigt folgende Hauptabhängigkeiten:
 
 - **Python 3**: [Installationsanleitung](https://www.python.org/downloads/)
 - **Chainlit**: Für die Chat-Benutzeroberfläche
+- **LangChain & LangGraph**: Für Workflow-Orchestrierung und RAG-Pipeline
+- **Weaviate**: Als Vektordatenbank
 - **OpenAI**: Für die Verbindung zur KI-API
-- **Requests**: Für HTTP-Anfragen
+- **Requests & BeautifulSoup4**: Für Web-Crawling
 
 Alle erforderlichen Pakete sind in der `Requirements.txt`-Datei aufgelistet.
 
