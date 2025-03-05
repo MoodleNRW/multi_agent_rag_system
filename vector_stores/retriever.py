@@ -1,151 +1,136 @@
-from langchain_openai import OpenAIEmbeddings
-from langchain_weaviate.vectorstores import WeaviateVectorStore
-import weaviate
+from typing import Tuple, Optional, List, Dict, Any
 import logging
-from typing import Tuple, Optional
-import os
-import dotenv
-from . import weaviate_client
+from langchain_weaviate.vectorstores import WeaviateVectorStore
+from langchain_openai import OpenAIEmbeddings
+from langchain_core.documents import Document
+from vector_stores.db_manager import WeaviateManager
 
-# Konfiguriere Logging
+# Konfiguriere Logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Lade Umgebungsvariablen
-dotenv.load_dotenv()
-API_KEY = os.getenv('OPENAI_API_KEY')
-
-# Globaler Client für die gesamte Anwendung
-global_client = None
-
 def ensure_global_client():
     """
-    Stellt sicher, dass der globale Weaviate-Client existiert und verbunden ist.
-    """
-    global global_client
-    
-    try:
-        if global_client is None:
-            logger.info("Erstelle einen neuen globalen Weaviate-Client")
-            global_client = weaviate_client.create_weaviate_client()
-        
-        if not global_client.is_connected():
-            logger.info("Der globale WeaviateClient ist nicht verbunden. Verbinde...")
-            global_client.connect()
-            
-        return global_client
-    except Exception as e:
-        logger.error(f"Fehler beim Verbinden des globalen Weaviate-Clients: {str(e)}")
-        # Bei einem kritischen Fehler erstellen wir einen neuen Client
-        try:
-            global_client = weaviate_client.create_weaviate_client()
-            global_client.connect()
-            return global_client
-        except Exception as e2:
-            logger.error(f"Kritischer Fehler: Konnte keinen neuen Client erstellen: {str(e2)}")
-            return None
-
-class KeepAliveWeaviateVectorStore(WeaviateVectorStore):
-    """
-    Eine angepasste Version der WeaviateVectorStore, die sicherstellt, 
-    dass der Client verbunden bleibt.
-    """
-    
-    def _select_relevance_score_fn(self):
-        """Überschreibe diese Methode, um sie mit der Verbindungsprüfung zu erweitern."""
-        # Stelle sicher, dass der Client verbunden ist, bevor wir ihn verwenden
-        if not self.client.is_connected():
-            logger.info("Client in VectorStore ist nicht verbunden. Verbinde...")
-            self.client.connect()
-            
-        return super()._select_relevance_score_fn()
-    
-    def similarity_search_with_score(self, *args, **kwargs):
-        """Überschreibe diese Methode, um sie mit der Verbindungsprüfung zu erweitern."""
-        # Stelle sicher, dass der Client verbunden ist, bevor wir ihn verwenden
-        if not self.client.is_connected():
-            logger.info("Client in VectorStore ist nicht verbunden. Verbinde...")
-            self.client.connect()
-            
-        return super().similarity_search_with_score(*args, **kwargs)
-    
-    def similarity_search(self, *args, **kwargs):
-        """Überschreibe diese Methode, um sie mit der Verbindungsprüfung zu erweitern."""
-        # Stelle sicher, dass der Client verbunden ist, bevor wir ihn verwenden
-        if not self.client.is_connected():
-            logger.info("Client in VectorStore ist nicht verbunden. Verbinde...")
-            self.client.connect()
-            
-        return super().similarity_search(*args, **kwargs)
-
-def create_retrievers() -> Tuple[Optional[object], Optional[object], Optional[object]]:
-    """
-    Erstellt Retriever für verschiedene Inhaltstypen (Chunks, Summaries, Quotes).
+    Stellt sicher, dass ein globaler Weaviate-Client existiert und gibt ihn zurück.
+    Diese Funktion ist nur zur Kompatibilität mit bestehendem Code vorhanden.
     
     Returns:
-        Tuple aus drei Retrievern (chunks, summaries, quotes) oder None für fehlende Retriever
+        Der Weaviate-Client oder None, wenn keine Verbindung möglich ist.
     """
-    try:
-        # Stelle sicher, dass der globale Client existiert und verbunden ist
-        client = ensure_global_client()
-        if client is None:
-            logger.error("Konnte keinen funktionierenden Weaviate-Client erstellen")
+    manager = WeaviateManager()
+    return manager.client
+
+class KeepAliveWeaviateVectorStore(WeaviateVectorStore):
+    """Eine erweiterte Version des WeaviateVectorStore mit Verbindungswiederherstellung."""
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.logger = logging.getLogger(__name__)
+        self.db_manager = WeaviateManager()
+    
+    def _select_relevance_score_fn(self):
+        """Überschreibt die Methode zur Auswahl der Relevanzfunktion."""
+        return lambda x: x
+    
+    def _ensure_connection(self):
+        """Stellt sicher, dass die Verbindung zu Weaviate besteht."""
+        if not self.db_manager.is_connected():
+            self.db_manager.connect()
+    
+    def similarity_search_with_score(self, *args, **kwargs):
+        """Führt eine Ähnlichkeitssuche mit Scores durch und stellt die Verbindung wieder her, falls nötig."""
+        self._ensure_connection()
+        try:
+            return super().similarity_search_with_score(*args, **kwargs)
+        except Exception as e:
+            self.logger.error(f"Fehler bei similarity_search_with_score: {str(e)}")
+            self._ensure_connection()
+            return super().similarity_search_with_score(*args, **kwargs)
+    
+    def similarity_search(self, *args, **kwargs):
+        """Führt eine Ähnlichkeitssuche durch und stellt die Verbindung wieder her, falls nötig."""
+        self._ensure_connection()
+        try:
+            return super().similarity_search(*args, **kwargs)
+        except Exception as e:
+            self.logger.error(f"Fehler bei similarity_search: {str(e)}")
+            self._ensure_connection()
+            return super().similarity_search(*args, **kwargs)
+
+class RetrieverFactory:
+    """Fabrik zur Erstellung von Retrievern für verschiedene Weaviate-Sammlungen."""
+    
+    def __init__(self, openai_api_key: str = None):
+        self.logger = logging.getLogger(__name__)
+        self.db_manager = WeaviateManager()
+        self.openai_api_key = openai_api_key or self.db_manager.api_key
+        
+    def create_retrievers(self) -> Tuple[Optional[KeepAliveWeaviateVectorStore], 
+                                         Optional[KeepAliveWeaviateVectorStore], 
+                                         Optional[KeepAliveWeaviateVectorStore]]:
+        """
+        Erstellt Retriever für Chunks, Summaries und Quotes.
+        
+        Returns:
+            Tuple mit (chunks_retriever, summaries_retriever, quotes_retriever)
+        """
+        if not self.db_manager.client:
+            self.logger.error("Kein Weaviate-Client verfügbar")
             return None, None, None
         
-        # Überprüfe, ob Klassen existieren und Daten enthalten
-        data_status = weaviate_client.check_weaviate_data(client)
-        logger.info(f"Verfügbare Daten in Weaviate: {data_status}")
-        
-        if not data_status["classes_exist"]:
-            logger.error("Weaviate-Klassen existieren nicht. Führen Sie zuerst den Crawler aus.")
+        try:
+            # Überprüfe, ob die Daten existieren
+            data_status = self.db_manager.check_data()
+            if not data_status["classes_exist"]:
+                self.logger.error("Weaviate-Schema existiert nicht")
+                return None, None, None
+                
+            if not data_status["has_sufficient_data"]:
+                self.logger.warning("Nicht genügend Daten in Weaviate")
+                
+            # Erstelle Embeddings
+            embeddings = OpenAIEmbeddings(openai_api_key=self.openai_api_key)
+            
+            # Chunks-Retriever
+            chunks_retriever = KeepAliveWeaviateVectorStore(
+                client=self.db_manager.client,
+                index_name="Chunk",
+                text_key="content",
+                embedding=embeddings,
+                attributes=["url", "title", "chapter", "section", "importance_score", "chunking_strategy"]
+            )
+            
+            # Summaries-Retriever
+            summaries_retriever = KeepAliveWeaviateVectorStore(
+                client=self.db_manager.client,
+                index_name="Summary",
+                text_key="content",
+                embedding=embeddings,
+                attributes=["url", "title", "document_id"]
+            )
+            
+            # Quotes-Retriever
+            quotes_retriever = KeepAliveWeaviateVectorStore(
+                client=self.db_manager.client,
+                index_name="Quote",
+                text_key="content",
+                embedding=embeddings,
+                attributes=["url", "title", "document_id"]
+            )
+            
+            return chunks_retriever, summaries_retriever, quotes_retriever
+            
+        except Exception as e:
+            self.logger.error(f"Fehler beim Erstellen der Retriever: {str(e)}")
             return None, None, None
-        
-        if not data_status["has_sufficient_data"]:
-            class_name = "Content_chunk"
-            count = data_status["details"].get(class_name, 0)
-            min_documents = 5
-            error_message = f"Insufficient data in Weaviate class '{class_name}': {count}/{min_documents} documents. Please run the crawler first."
-            logger.error(error_message)
-            raise ValueError(error_message)
 
-        # OpenAI Embeddings initialisieren
-        embeddings = OpenAIEmbeddings()
-        
-        # Vector Stores für die verschiedenen Datentypen erstellen mit unserer angepassten Klasse
-        chunks_vector_store = KeepAliveWeaviateVectorStore(
-            client=client, 
-            index_name="Content_chunk", 
-            embedding=embeddings,
-            text_key="content_chunk"
-        )
-
-        summaries_vector_store = KeepAliveWeaviateVectorStore(
-            client=client, 
-            index_name="Content_summary", 
-            embedding=embeddings,
-            text_key="content_summary"
-        )
-        
-        # Für Zitate verwenden wir auch Content_chunk, filtern aber nach bestimmten Eigenschaften
-        # oder passen die Abfrageparameter an
-        quotes_vector_store = KeepAliveWeaviateVectorStore(
-            client=client, 
-            index_name="Content_chunk", 
-            embedding=embeddings,
-            text_key="content_chunk"
-        )
-
-        # Retriever mit angepassten Suchparametern erstellen
-        chunks_retriever = chunks_vector_store.as_retriever(search_kwargs={"k": 4})     
-        summaries_retriever = summaries_vector_store.as_retriever(search_kwargs={"k": 4})
-        quotes_retriever = quotes_vector_store.as_retriever(search_kwargs={"k": 10})
-        
-        logger.info("Retriever erfolgreich erstellt.")
-        return chunks_retriever, summaries_retriever, quotes_retriever
-
-    except weaviate.exceptions.WeaviateBaseError as e:
-        logger.error(f"Weaviate-Fehler beim Erstellen der Retriever: {str(e)}")
-        return None, None, None
-    except Exception as e:
-        logger.error(f"Allgemeiner Fehler beim Erstellen der Retriever: {str(e)}")
-        return None, None, None
+# Funktion zur Kompatibilität mit bestehendem Code
+def create_retrievers() -> Tuple[Optional[object], Optional[object], Optional[object]]:
+    """
+    Erstellt die drei Retriever für die Anwendung.
+    
+    Returns:
+        Ein Tupel mit (chunks_retriever, summaries_retriever, quotes_retriever)
+    """
+    factory = RetrieverFactory()
+    return factory.create_retrievers()

@@ -25,14 +25,33 @@ def create_weaviate_client() -> weaviate.WeaviateClient:
     Returns:
         weaviate.WeaviateClient: Der initialisierte Weaviate-Client
     """
-    connection_params = ConnectionParams.from_url(
-        url=WEAVIATE_URL,
-        grpc_port=WEAVIATE_GRPC_PORT
+    # Extrahiere Host und Port aus URL
+    url_parts = WEAVIATE_URL.replace("http://", "").replace("https://", "").split(":")
+    host = url_parts[0]
+    http_port = int(url_parts[1]) if len(url_parts) > 1 else 80
+    
+    # Erstelle ConnectionParams mit der korrekten Struktur für Weaviate Client v4.9.6
+    connection_params = ConnectionParams(
+        http={
+            "host": host,
+            "port": http_port,
+            "secure": WEAVIATE_URL.startswith("https")
+        },
+        grpc={
+            "host": host,
+            "port": WEAVIATE_GRPC_PORT,
+            "secure": WEAVIATE_URL.startswith("https")
+        }
     )
+    
+    # Füge OpenAI-API-Key als zusätzlichen Header hinzu, wenn verfügbar
+    additional_headers = {}
+    if API_KEY:
+        additional_headers["X-OpenAI-Api-Key"] = API_KEY
     
     client = weaviate.WeaviateClient(
         connection_params=connection_params,
-        additional_headers={"X-OpenAI-Api-Key": API_KEY}
+        additional_headers=additional_headers
     )
     
     return client
