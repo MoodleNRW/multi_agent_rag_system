@@ -18,7 +18,7 @@ import weaviate
 from tqdm import tqdm
 import dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from weaviate import ConnectionParams
+from weaviate.connect import ConnectionParams
 # Aktualisiere den Import für ChatOpenAI
 from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
@@ -43,20 +43,30 @@ weaviate_instance = weaviate_client.create_weaviate_client()
 def ensure_weaviate_connection():
     """Stellt sicher, dass der Weaviate-Client verbunden ist."""
     global weaviate_instance
-    if not weaviate_client.ensure_weaviate_connection(weaviate_instance):
-        print("[Weaviate] Client ist geschlossen. Erstelle neuen Client...")
-        weaviate_instance = weaviate_client.create_weaviate_client()
+    try:
         if not weaviate_client.ensure_weaviate_connection(weaviate_instance):
-            print("[Weaviate] Fehler beim Verbinden. Bitte stellen Sie sicher, dass Weaviate läuft.")
-            sys.exit(1)
+            print("[Weaviate] Client ist geschlossen. Erstelle neuen Client...")
+            weaviate_instance = weaviate_client.create_weaviate_client()
+            if not weaviate_client.ensure_weaviate_connection(weaviate_instance):
+                print("[Weaviate] Fehler beim Verbinden. Bitte stellen Sie sicher, dass Weaviate läuft.")
+                return False
+        return True
+    except Exception as e:
+        print(f"[Weaviate] Fehler bei der Verbindung: {str(e)}")
+        return False
 
 def create_weaviate_schema():
     """Erstellt die erforderlichen Schemas in Weaviate, falls sie noch nicht existieren."""
     global weaviate_instance
-    print("[Weaviate] Prüfe und erstelle Schemas...")
-    if not weaviate_client.create_weaviate_schema(weaviate_instance):
-        print("[Weaviate] Fehler beim Erstellen der Schemas. Bitte stellen Sie sicher, dass Weaviate läuft.")
-        sys.exit(1)
+    try:
+        print("[Weaviate] Prüfe und erstelle Schemas...")
+        if not weaviate_client.create_weaviate_schema(weaviate_instance):
+            print("[Weaviate] Fehler beim Erstellen der Schemas. Bitte stellen Sie sicher, dass Weaviate läuft.")
+            return False
+        return True
+    except Exception as e:
+        print(f"[Weaviate] Fehler beim Erstellen der Schemas: {str(e)}")
+        return False
 
 def extract_metadata_from_page(url, soup):
     """
@@ -362,10 +372,14 @@ def save_to_weaviate(collected_data):
     global weaviate_instance
     
     # Stelle sicher, dass eine Verbindung zu Weaviate besteht
-    ensure_weaviate_connection()
+    if not ensure_weaviate_connection():
+        print("[FEHLER] Keine Verbindung zu Weaviate möglich. Daten können nicht gespeichert werden.")
+        return
     
     # Erstelle Schemas, falls sie nicht existieren
-    create_weaviate_schema()
+    if not create_weaviate_schema():
+        print("[FEHLER] Fehler beim Erstellen der Schemas. Daten können nicht gespeichert werden.")
+        return
     
     # Wenn collected_data eine Liste ist, konvertiere sie in ein Dictionary mit URL als Schlüssel
     if isinstance(collected_data, list):
@@ -703,8 +717,15 @@ def main():
     
     try:
         # Prüfe Weaviate-Verbindung und erstelle Schemas
-        ensure_weaviate_connection()
-        create_weaviate_schema()
+        if not ensure_weaviate_connection():
+            print("[FEHLER] Keine Verbindung zu Weaviate möglich. Bitte stellen Sie sicher, dass Weaviate läuft.")
+            print("[STATUS] CRAWLING_ERROR")
+            sys.exit(1)
+            
+        if not create_weaviate_schema():
+            print("[FEHLER] Fehler beim Erstellen der Schemas. Bitte stellen Sie sicher, dass Weaviate läuft.")
+            print("[STATUS] CRAWLING_ERROR")
+            sys.exit(1)
         
         visited = set()
         data = scrape_website(website_url, visited=visited, max_workers=10, depth=depth, chunking_strategy=chunking_strategy)

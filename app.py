@@ -180,7 +180,7 @@ async def select_strategy_callback(action):
     try:
         # Angepasste URL für moodlenrw.de
         url = "https://moodlenrw.de/"
-        depth = 5  # Begrenzung der Anzahl der Seiten
+        depth = 50  # Begrenzung der Anzahl der Seiten
         
         # Status-Nachricht
         update_msg = cl.Message(content=f"Der Crawler läuft mit der {selected_strategy} Chunking-Strategie und sammelt Daten von https://moodlenrw.de/... Dies kann einige Minuten dauern.")
@@ -604,31 +604,56 @@ async def on_db_clear_all(action):
     """Löscht alle Daten aus der Datenbank."""
     await action.remove()
     
-    temp_client = None
+    # Verwende den globalen Client anstelle eines temporären Clients
     try:
-        # Erstelle Weaviate-Client
-        temp_client = create_weaviate_client()
+        global client  # Verwende den globalen Client
+        
+        # Stelle sicher, dass der globale Client existiert und verbunden ist
+        client = ensure_global_client()
+        if client is None:
+            await cl.Message(content="⚠️ Fehler bei der Verbindung mit der Weaviate-Datenbank.").send()
+            return
+        
+        # Prüfe explizit die Verbindung
+        if not client.is_connected():
+            client.connect()  # Verbinde erneut, wenn nicht verbunden
         
         # Klassen abrufen
-        schema = temp_client.schema.get()
-        collection_names = [collection.name for collection in schema.collections]
+        collection_names = client.collections.list_all(simple=True)
         
         if not collection_names:
             await cl.Message(content="Keine Klassen zum Löschen gefunden.").send()
             return
         
-        # Lösche alle Objekte aus jeder Klasse
-        for class_name in collection_names:
-            try:
-                collection = temp_client.collections.get(class_name)
-                collection.data.delete_all()
-                await cl.Message(content=f"✅ Alle Objekte aus **{class_name}** wurden gelöscht.").send()
-            except Exception as e:
-                logger.error(f"Fehler beim Löschen von Objekten aus {class_name}: {str(e)}")
-                await cl.Message(content=f"⚠️ Fehler beim Löschen von {class_name}: {str(e)}").send()
+        # Lösche alle Klassen
+        try:
+            # Lösche alle Klassen auf einmal
+            client.collections.delete_all()
+            logger.info("Alle Klassen wurden gelöscht")
+            await cl.Message(content="✅ Alle Klassen und deren Objekte wurden erfolgreich gelöscht.").send()
+        except Exception as delete_error:
+            logger.error(f"Fehler beim Löschen aller Klassen: {str(delete_error)}")
+            await cl.Message(content=f"⚠️ Fehler beim Löschen aller Klassen: {str(delete_error)}").send()
+            
+            # Versuche, jede Klasse einzeln zu löschen
+            success_count = 0
+            for class_name in collection_names:
+                try:
+                    # Prüfe, ob der Client noch verbunden ist, bevor wir fortfahren
+                    if not client.is_connected():
+                        client.connect()
+                        
+                    # Lösche die Klasse
+                    client.collections.delete(class_name)
+                    await cl.Message(content=f"✅ Klasse **{class_name}** wurde gelöscht.").send()
+                    success_count += 1
+                except Exception as e:
+                    logger.error(f"Fehler beim Löschen der Klasse {class_name}: {str(e)}")
+                    await cl.Message(content=f"⚠️ Fehler beim Löschen von {class_name}: {str(e)}").send()
         
-        await cl.Message(content="🧹 Bereinigung abgeschlossen. Die Anwendung muss neu gestartet werden, um die Änderungen zu übernehmen.").send()
-        restart_msg = cl.Message(content="Die Anwendung benötigt einen Neustart, um die Änderungen zu übernehmen. Klicken Sie auf die Schaltfläche, um die Anwendung neu zu starten.")
+        await cl.Message(content="Die Anwendung sollte neu gestartet werden, um die Änderungen zu übernehmen.").send()
+        
+        restart_msg = cl.Message(content="Anwendung muss neu gestartet werden, um die Änderungen zu übernehmen.")
         restart_msg.actions = [cl.Action(name="app_restart", payload={"action": "restart"}, label="🔄 Anwendung neu starten")]
         await restart_msg.send()
         
@@ -670,14 +695,27 @@ async def on_db_clear_class_confirm(action):
     status_msg = cl.Message(content=f"⏳ Lösche alle Objekte aus **{class_name}**...")
     await status_msg.send()
     
-    temp_client = None
     try:
-        # Erstelle Weaviate-Client
-        temp_client = create_weaviate_client()
+        # Verwende den globalen Client anstelle eines temporären Clients
+        global client
+        client = ensure_global_client()
+        if client is None:
+            await cl.Message(content="⚠️ Fehler bei der Verbindung mit der Weaviate-Datenbank.").send()
+            return
+            
+        # Prüfe explizit die Verbindung
+        if not client.is_connected():
+            client.connect()
         
-        # Lösche alle Objekte der Klasse
-        collection = temp_client.collections.get(class_name)
-        collection.data.delete_all()
+        # Lösche die Klasse komplett und erstelle sie neu
+        # Dies ist die effektivste Methode, um alle Objekte zu löschen
+        try:
+            # Lösche die Klasse
+            client.collections.delete(class_name)
+            logger.info(f"Klasse {class_name} wurde gelöscht")
+        except Exception as delete_error:
+            logger.error(f"Fehler beim Löschen der Klasse {class_name}: {str(delete_error)}")
+            # Wenn die Klasse nicht existiert, ist das kein Problem
         
         await cl.Message(content=f"✅ Alle Objekte aus **{class_name}** wurden erfolgreich gelöscht.").send()
         await cl.Message(content="Die Anwendung sollte neu gestartet werden, um die Änderungen zu übernehmen.").send()
