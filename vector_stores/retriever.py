@@ -92,6 +92,23 @@ def create_retrievers() -> Tuple[Optional[object], Optional[object], Optional[ob
             logger.error("Konnte keinen funktionierenden Weaviate-Client erstellen")
             return None, None, None
         
+        # Erstelle Retriever mit dem globalen Client
+        return create_retrievers_with_client(client)
+    except Exception as e:
+        logger.error(f"Fehler beim Erstellen der Retriever: {str(e)}")
+        return None, None, None
+
+def create_retrievers_with_client(client) -> Tuple[Optional[object], Optional[object], Optional[object]]:
+    """
+    Erstellt Retriever für verschiedene Inhaltstypen mit einem bestimmten Weaviate-Client.
+    
+    Args:
+        client: Der Weaviate-Client, der für die Retriever verwendet werden soll.
+        
+    Returns:
+        Tuple aus drei Retrievern (chunks, summaries, quotes) oder None für fehlende Retriever
+    """
+    try:
         # Überprüfe, ob Klassen existieren und Daten enthalten
         data_status = weaviate_client.check_weaviate_data(client)
         logger.info(f"Verfügbare Daten in Weaviate: {data_status}")

@@ -12,7 +12,7 @@ from config.config_manager import ConfigManager
 from agent.state import PlanExecute
 from agent.graph import compile_workflow
 from vector_stores.retriever import create_retrievers, ensure_global_client
-from vector_stores.weaviate_client import check_weaviate_data
+from vector_stores.weaviate_client import check_weaviate_data, create_weaviate_client
 from langgraph.pregel import GraphRecursionError
 from utils.graph_visualization import display_graph 
 
@@ -37,6 +37,67 @@ dotenv.load_dotenv()
 # Globaler Client
 client = ensure_global_client()
 
+async def initialize_retrievers_and_check_data(client):
+    """
+    Überprüft den Datenbankstatus und initialisiert die Retriever.
+    
+    Args:
+        client: Der Weaviate-Client für die Datenbankverbindung
+        
+    Returns:
+        bool: True bei erfolgreicher Initialisierung, False sonst
+    """
+    try:
+        # Überprüfe Daten
+        data_status = check_weaviate_data(client)
+        
+        if not data_status["classes_exist"]:
+            # Zeige direkt die Crawler-Option an, wenn die Klassen nicht existieren
+            crawler_msg = cl.Message(content="⚠️ **Warnung**: Die Datenbank ist leer. Klicken Sie auf die Schaltfläche unten, um den Crawler zu starten und Daten zu sammeln.")
+            crawler_actions = [
+                cl.Action(name="run_crawler", payload={"action": "run"}, label="🚀 Crawler ausführen")
+            ]
+            crawler_msg.actions = crawler_actions
+            await crawler_msg.send()
+            return False
+        
+        if not data_status["has_sufficient_data"]:
+            # Zeige Warnung und Crawler-Option an, wenn nicht genügend Daten vorhanden sind
+            crawler_msg = cl.Message(content="⚠️ **Warnung**: Es sind nicht ausreichend Daten in der Datenbank vorhanden. Die Suche könnte eingeschränkt sein. Klicken Sie auf die Schaltfläche unten, um den Crawler zu starten und mehr Daten zu sammeln.")
+            crawler_actions = [
+                cl.Action(name="run_crawler", payload={"action": "run"}, label="🚀 Crawler ausführen")
+            ]
+            crawler_msg.actions = crawler_actions
+            await crawler_msg.send()
+        
+        # Initialize vector store retrievers mit dem übergebenen Client
+        from vector_stores.retriever import create_retrievers_with_client
+        chunks_retriever, summaries_retriever, quotes_retriever = create_retrievers_with_client(client)
+        cl.user_session.set("retrievers", {
+            "chunks": chunks_retriever,
+            "summaries": summaries_retriever,
+            "quotes": quotes_retriever
+        })
+        
+        # Send welcome message
+        await cl.Message(content="Willkommen! Ich bin bereit, Ihre Fragen über Moodle zu beantworten ✅. Was möchten Sie wissen oder tun?").send()
+        return True
+    except Exception as e:
+        error_message = str(e)
+        logger_message = f"Fehler beim Initialisieren der Retriever: {error_message}"
+        logger.error(logger_message)
+        
+        if "insufficient data" in error_message.lower():
+            crawler_msg = cl.Message(content="⚠️ **Warnung**: Nicht genügend Daten in der Datenbank. Klicken Sie auf die Schaltfläche unten, um den Crawler zu starten und Daten zu sammeln.")
+            crawler_actions = [
+                cl.Action(name="run_crawler", payload={"action": "run"}, label="🚀 Crawler ausführen")
+            ]
+            crawler_msg.actions = crawler_actions
+            await crawler_msg.send()
+        else:
+            await cl.Message(content=f"⚠️ **Fehler**: Bei der Initialisierung ist ein Problem aufgetreten: {error_message}. Bitte überprüfen Sie die Verbindung zur Vektordatenbank.").send()
+        return False
+
 @cl.on_chat_start
 async def start():
     """Initialisierung beim Chatstart."""
@@ -53,54 +114,8 @@ async def start():
     admin_msg.actions = actions
     await admin_msg.send()
     
-    # Überprüfe Weaviate-Verbindung und Daten
-    try:
-        # Überprüfe Daten
-        data_status = check_weaviate_data(client)
-        
-        if not data_status["classes_exist"]:
-            # Zeige direkt die Crawler-Option an, wenn die Klassen nicht existieren
-            crawler_msg = cl.Message(content="⚠️ **Warnung**: Die Datenbank ist leer. Klicken Sie auf die Schaltfläche unten, um den Crawler zu starten und Daten zu sammeln.")
-            crawler_actions = [
-                cl.Action(name="run_crawler", payload={"action": "run"}, label="🚀 Crawler ausführen")
-            ]
-            crawler_msg.actions = crawler_actions
-            await crawler_msg.send()
-            return
-        
-        if not data_status["has_sufficient_data"]:
-            # Zeige Warnung und Crawler-Option an, wenn nicht genügend Daten vorhanden sind
-            crawler_msg = cl.Message(content="⚠️ **Warnung**: Es sind nicht ausreichend Daten in der Datenbank vorhanden. Die Suche könnte eingeschränkt sein. Klicken Sie auf die Schaltfläche unten, um den Crawler zu starten und mehr Daten zu sammeln.")
-            crawler_actions = [
-                cl.Action(name="run_crawler", payload={"action": "run"}, label="🚀 Crawler ausführen")
-            ]
-            crawler_msg.actions = crawler_actions
-            await crawler_msg.send()
-        
-        # Initialize vector store retrievers
-        chunks_retriever, summaries_retriever, quotes_retriever = create_retrievers()
-        cl.user_session.set("retrievers", {
-            "chunks": chunks_retriever,
-            "summaries": summaries_retriever,
-            "quotes": quotes_retriever
-        })
-        
-        # Send welcome message
-        await cl.Message(content="Willkommen! Ich bin bereit, Ihre Fragen über Moodle zu beantworten ✅. Was möchten Sie wissen oder tun?").send()
-    except Exception as e:
-        error_message = str(e)
-        logger_message = f"Fehler beim Initialisieren der Retriever: {error_message}"
-        logger.error(logger_message)
-        
-        if "insufficient data" in error_message.lower():
-            crawler_msg = cl.Message(content="⚠️ **Warnung**: Nicht genügend Daten in der Datenbank. Klicken Sie auf die Schaltfläche unten, um den Crawler zu starten und Daten zu sammeln.")
-            crawler_actions = [
-                cl.Action(name="run_crawler", payload={"action": "run"}, label="🚀 Crawler ausführen")
-            ]
-            crawler_msg.actions = crawler_actions
-            await crawler_msg.send()
-        else:
-            await cl.Message(content=f"⚠️ **Fehler**: Bei der Initialisierung ist ein Problem aufgetreten: {error_message}. Bitte überprüfen Sie die Verbindung zur Vektordatenbank.").send()
+    # Initialisiere Retriever und überprüfe Daten
+    await initialize_retrievers_and_check_data(client)
 
 @cl.on_settings_update
 async def update_settings(settings):
@@ -154,20 +169,48 @@ async def process_message(message_content: str):
     
     # Führe den Workflow aus
     config = {"recursion_limit": 25}
+    step_output = None
+    astream_generator = None
+    
     try:
-        async for step_output in workflow.astream(initial_state, config=config):
+        # Speichere den Generator in einer Variablen, damit wir ihn später schließen können
+        astream_generator = workflow.astream(initial_state, config=config)
+        
+        async for current_output in astream_generator:
+            step_output = current_output
             last_key = next(iter(step_output))
             await update_ui(step_output[last_key])
-    except GraphRecursionError:
-        res = await support_summary_step(step_output[last_key])
-        logger.warning("Der Workflow hat das Rekursionslimit erreicht.")
-        await cl.Message(content="Der Workflow hat das Rekursionslimit erreicht.").send()
-        await cl.Message(content=res).send()
+            
+    except GraphRecursionError as e:
+        if step_output:
+            last_key = next(iter(step_output))
+            res = await support_summary_step(step_output[last_key])
+            logger.warning("Der Workflow hat das Rekursionslimit erreicht.")
+            await cl.Message(content="Der Workflow hat das Rekursionslimit erreicht.").send()
+            await cl.Message(content=res).send()
+        else:
+            logger.error(f"Rekursionsfehler ohne gültigen Ausgabezustand: {str(e)}")
+            await cl.Message(content="Ein Fehler ist aufgetreten: Der Workflow hat das Rekursionslimit erreicht, konnte aber keine Zusammenfassung erstellen.").send()
         return
+    except Exception as e:
+        logger.error(f"Fehler bei der Ausführung des Workflows: {str(e)}", exc_info=True)
+        await cl.Message(content=f"Ein Fehler ist aufgetreten: {str(e)}").send()
+        return
+    finally:
+        # Stelle sicher, dass der Generator ordnungsgemäß geschlossen wird
+        if astream_generator:
+            try:
+                await astream_generator.aclose()
+            except Exception as close_error:
+                logger.error(f"Fehler beim Schließen des Generators: {str(close_error)}")
     
-    # Sende die endgültige Antwort
-    final_response = step_output[last_key].get("response", "Ich konnte keine Antwort generieren. Bitte formulieren Sie Ihre Frage um.")
-    await cl.Message(content=final_response).send()
+    # Sende die endgültige Antwort, nur wenn step_output existiert
+    if step_output:
+        last_key = next(iter(step_output))
+        final_response = step_output[last_key].get("response", "Ich konnte keine Antwort generieren. Bitte formulieren Sie Ihre Frage um.")
+        await cl.Message(content=final_response).send()
+    else:
+        await cl.Message(content="Ich konnte keine Antwort generieren. Bitte formulieren Sie Ihre Frage um.").send()
 
 @cl.action_callback("confirm_crawl")
 async def on_confirm_crawl(action):
@@ -179,55 +222,10 @@ async def on_confirm_crawl(action):
     temp_client = None
     try:
         # Erstelle Weaviate-Client zum Prüfen der Datenbank
-        from vector_stores.weaviate_client import create_weaviate_client
         temp_client = create_weaviate_client()
         
-        # Überprüfe Daten
-        data_status = check_weaviate_data(temp_client)
-        
-        if not data_status["classes_exist"]:
-            # Zeige direkt die Crawler-Option an, wenn die Klassen nicht existieren
-            crawler_msg = cl.Message(content="⚠️ **Warnung**: Die Datenbank ist leer. Klicken Sie auf die Schaltfläche unten, um den Crawler zu starten und Daten zu sammeln.")
-            crawler_actions = [
-                cl.Action(name="run_crawler", payload={"action": "run"}, label="🚀 Crawler ausführen")
-            ]
-            crawler_msg.actions = crawler_actions
-            await crawler_msg.send()
-            return
-        
-        if not data_status["has_sufficient_data"]:
-            # Zeige Warnung und Crawler-Option an, wenn nicht genügend Daten vorhanden sind
-            crawler_msg = cl.Message(content="⚠️ **Warnung**: Es sind nicht ausreichend Daten in der Datenbank vorhanden. Die Suche könnte eingeschränkt sein. Klicken Sie auf die Schaltfläche unten, um den Crawler zu starten und mehr Daten zu sammeln.")
-            crawler_actions = [
-                cl.Action(name="run_crawler", payload={"action": "run"}, label="🚀 Crawler ausführen")
-            ]
-            crawler_msg.actions = crawler_actions
-            await crawler_msg.send()
-        
-        # Initialize vector store retrievers
-        chunks_retriever, summaries_retriever, quotes_retriever = create_retrievers()
-        cl.user_session.set("retrievers", {
-            "chunks": chunks_retriever,
-            "summaries": summaries_retriever,
-            "quotes": quotes_retriever
-        })
-        
-        # Send welcome message
-        await cl.Message(content="Willkommen! Ich bin bereit, Ihre Fragen über Moodle zu beantworten ✅. Was möchten Sie wissen oder tun?").send()
-    except Exception as e:
-        error_message = str(e)
-        logger_message = f"Fehler beim Initialisieren der Retriever: {error_message}"
-        logger.error(logger_message)
-        
-        if "insufficient data" in error_message.lower():
-            crawler_msg = cl.Message(content="⚠️ **Warnung**: Nicht genügend Daten in der Datenbank. Klicken Sie auf die Schaltfläche unten, um den Crawler zu starten und Daten zu sammeln.")
-            crawler_actions = [
-                cl.Action(name="run_crawler", payload={"action": "run"}, label="🚀 Crawler ausführen")
-            ]
-            crawler_msg.actions = crawler_actions
-            await crawler_msg.send()
-        else:
-            await cl.Message(content=f"⚠️ **Fehler**: Bei der Initialisierung ist ein Problem aufgetreten: {error_message}. Bitte überprüfen Sie die Verbindung zur Vektordatenbank.").send()
+        # Initialisiere Retriever und überprüfe Daten mit dem temporären Client
+        await initialize_retrievers_and_check_data(temp_client)
     finally:
         # Stelle sicher, dass der temporäre Client geschlossen wird
         if temp_client:

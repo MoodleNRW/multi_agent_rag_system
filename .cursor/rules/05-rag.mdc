@@ -186,7 +186,7 @@ alwaysApply: false
       for i, source in enumerate(sources, 1):
           url = source.get("url", "")
           title = source.get("title", "Unbekannte Quelle")
-          sources_section += f"{i}. [{title}]({url})\n"
+          sources_section += f"{i}. [{title}](mdc:{url})\n"
       
       # Formatiere den Haupttext mit Zitatreferenzen
       cited_answer = answer
