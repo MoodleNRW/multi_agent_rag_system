@@ -18,6 +18,7 @@ from utils.graph_visualization import display_graph
 
 # Import ausgelagerte Module
 from ui.ui_handlers import update_ui
+from ui.evaluation_ui import add_evaluation_button, store_conversation_item
 from vector_stores.db_manager import reconnect_weaviate_if_needed
 
 # Setze die Socket.IO Buffer-Größe, um "Too many packets in payload" zu vermeiden
@@ -114,6 +115,9 @@ async def start():
     admin_msg.actions = actions
     await admin_msg.send()
     
+    # Füge Evaluierungsbutton hinzu
+    await add_evaluation_button()
+    
     # Initialisiere Retriever und überprüfe Daten
     await initialize_retrievers_and_check_data(client)
 
@@ -207,8 +211,16 @@ async def process_message(message_content: str):
     # Sende die endgültige Antwort, nur wenn step_output existiert
     if step_output:
         last_key = next(iter(step_output))
-        final_response = step_output[last_key].get("response", "Ich konnte keine Antwort generieren. Bitte formulieren Sie Ihre Frage um.")
+        final_state = step_output[last_key]
+        final_response = final_state.get("response", "Ich konnte keine Antwort generieren. Bitte formulieren Sie Ihre Frage um.")
         await cl.Message(content=final_response).send()
+        
+        # Speichere das Frage-Antwort-Paar für die Evaluierung
+        store_conversation_item(
+            question=message_content,
+            answer=final_response,
+            context=final_state.get("aggregated_context", "")
+        )
     else:
         await cl.Message(content="Ich konnte keine Antwort generieren. Bitte formulieren Sie Ihre Frage um.").send()
 

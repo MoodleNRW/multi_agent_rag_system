@@ -1,0 +1,22 @@
+{
+  "questions": [
+    "Was ist Moodle?",
+    "Wie erstelle ich einen Kurs in Moodle?",
+    "Welche Aktivitäten kann ich in Moodle hinzufügen?"
+  ],
+  "answers": [
+    "Moodle ist ein Open-Source-Lernmanagementsystem, das von Bildungseinrichtungen weltweit genutzt wird, um Online-Kurse zu erstellen und zu verwalten.",
+    "Um einen Kurs in Moodle zu erstellen, müssen Sie Administrator- oder Kursersteller-Rechte haben. Gehen Sie zur Seite 'Website-Administration' > 'Kurse' > 'Kurse verwalten' und klicken Sie auf 'Neuen Kurs anlegen'. Füllen Sie die erforderlichen Felder aus und klicken Sie auf 'Speichern'.",
+    "In Moodle können Sie verschiedene Aktivitäten hinzufügen, wie Foren, Aufgaben, Tests, Wikis, Glossare, Datenbanken, Workshops, Umfragen und SCORM-Pakete. Jede Aktivität bietet unterschiedliche Interaktionsmöglichkeiten für die Lernenden."
+  ],
+  "contexts": [
+    "Moodle ist ein Open-Source-Lernmanagementsystem (LMS), das von Bildungseinrichtungen weltweit genutzt wird, um Online-Kurse zu erstellen und zu verwalten. Es wurde entwickelt, um Lehrenden und Lernenden eine sichere und integrierte Plattform für personalisiertes Lernen zu bieten.",
+    "Kurserstellung in Moodle: Gehen Sie zur Administration > Kurse > Kurse verwalten und klicken Sie auf 'Neuen Kurs anlegen'. Füllen Sie die erforderlichen Felder wie Kursname, Kurzbeschreibung und Format aus. Wählen Sie die gewünschten Einstellungen für Sichtbarkeit, Datum und Zugriff. Klicken Sie auf 'Speichern', um den Kurs zu erstellen.",
+    "Moodle bietet verschiedene Aktivitäten wie Foren, Aufgaben, Tests, Wikis, Glossare, Datenbanken, Workshops, Umfragen und SCORM-Pakete. Foren ermöglichen Diskussionen, Aufgaben dienen zur Einreichung von Arbeiten, Tests zur Bewertung, Wikis zur kollaborativen Inhaltserstellung, Glossare zum Erstellen von Begriffslisten, Datenbanken zum Sammeln von Einträgen, Workshops für Peer-Reviews, Umfragen für Feedback und SCORM-Pakete für interaktive Inhalte."
+  ],
+  "ground_truths": [
+    "Moodle ist ein Open-Source-Lernmanagementsystem (LMS), das von Bildungseinrichtungen weltweit genutzt wird.",
+    "Um einen Kurs zu erstellen, navigieren Sie zu 'Administration' > 'Kurse' > 'Kurse verwalten' und klicken auf 'Neuen Kurs anlegen'. Füllen Sie die erforderlichen Informationen aus und speichern Sie.",
+    "Moodle unterstützt folgende Aktivitäten: Foren, Aufgaben, Tests, Wikis, Glossare, Datenbanken, Workshops, Umfragen und SCORM-Pakete."
+  ]
+}

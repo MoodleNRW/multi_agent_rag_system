@@ -15,6 +15,8 @@ from .retriever import run_qualitative_chunks_retrieval_workflow, run_qualitativ
 from .tools import run_moodle_tool_workflow
 from .answerer import run_qualtative_answer_workflow, run_qualtative_answer_workflow_for_final_answer
 from .verifier import can_be_answered
+from .hallucination_checker import is_answer_grounded_on_context
+from .relevance_checker import is_relevant_content
 
 async def create_agent_graph():
     agent_workflow = StateGraph(PlanExecute)
@@ -32,6 +34,8 @@ async def create_agent_graph():
     agent_workflow.add_node("answer", run_qualtative_answer_workflow)
     agent_workflow.add_node("replan", replan_step)
     agent_workflow.add_node("get_final_answer", run_qualtative_answer_workflow_for_final_answer)
+    agent_workflow.add_node("check_hallucination", is_answer_grounded_on_context)
+    agent_workflow.add_node("check_relevance", is_relevant_content)
 
     # Set entry point
     agent_workflow.set_entry_point("anonymize_question")
@@ -42,7 +46,7 @@ async def create_agent_graph():
     agent_workflow.add_edge("de_anonymize_plan", "break_down_plan")
     agent_workflow.add_edge("break_down_plan", "task_handler")
 
-    # Add conditional edges
+    # Add conditional edges for task handler
     agent_workflow.add_conditional_edges(
         "task_handler",
         retrieve_or_answer,
@@ -55,12 +59,40 @@ async def create_agent_graph():
         }
     )
 
-    agent_workflow.add_edge("retrieve_chunks", "replan")
-    agent_workflow.add_edge("retrieve_summaries", "replan")
+    # Add conditional edges for relevance check after retrieval
+    agent_workflow.add_conditional_edges(
+        "retrieve_chunks",
+        is_relevant_content,
+        {
+            "relevant": "replan",
+            "not_relevant": "retrieve_summaries"
+        }
+    )
+
+    agent_workflow.add_conditional_edges(
+        "retrieve_summaries",
+        is_relevant_content,
+        {
+            "relevant": "replan",
+            "not_relevant": "retrieve_quotes"
+        }
+    )
+
     agent_workflow.add_edge("retrieve_quotes", "replan")
-    agent_workflow.add_edge("answer", "replan")
+    
+    # Add conditional edges for hallucination check after answer
+    agent_workflow.add_conditional_edges(
+        "answer",
+        is_answer_grounded_on_context,
+        {
+            "grounded_on_context": "replan",
+            "hallucination": "retrieve_chunks"
+        }
+    )
+
     agent_workflow.add_edge("call_moodle_tool", "replan")
 
+    # Add conditional edges for replan
     agent_workflow.add_conditional_edges(
         "replan",
         can_be_answered,
@@ -70,7 +102,15 @@ async def create_agent_graph():
         }
     )
 
-    agent_workflow.add_edge("get_final_answer", END)
+    # Add conditional edges for final answer hallucination check
+    agent_workflow.add_conditional_edges(
+        "get_final_answer",
+        is_answer_grounded_on_context,
+        {
+            "grounded_on_context": END,
+            "hallucination": "replan"
+        }
+    )
 
     return agent_workflow
 

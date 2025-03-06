@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 STEP_INFO = {
     "anonymize_question": {
         "emoji": "🔒",
-        "description": "Anonymisiere die Frage für erhöhten Datenschutz...",
+        "description": "Anonymisiere die Frage für das ersetzen von bennanter Entitäten durch Platzhalter",
         "type": "process"
     },
     "planner": {
@@ -62,6 +62,16 @@ STEP_INFO = {
         "emoji": "✅",
         "description": "Erstelle die endgültige Antwort...",
         "type": "output"
+    },
+    "hallucination_check": {
+        "emoji": "🔍",
+        "description": "Überprüfe, ob die Antwort auf Fakten basiert...",
+        "type": "process"
+    },
+    "relevance_check": {
+        "emoji": "🎯",
+        "description": "Überprüfe, ob der abgerufene Inhalt relevant ist...",
+        "type": "process"
     }
 }
 
@@ -112,9 +122,26 @@ async def update_ui(step_output):
         if current_state.startswith("retrieve_"):
             # Zeige Fortschritt für Retrieval-Schritte
             message_content += "\n\n*Suche nach den relevantesten Informationen für deine Anfrage...*"
+            
+            # Zeige die Abfrage an
+            if "query_to_retrieve_or_answer" in step_output:
+                message_content += f"\n\n**Abfrage**: {step_output['query_to_retrieve_or_answer']}"
         elif current_state == "answer":
             # Zeige Fortschritt für Antwort-Generierung
             message_content += "\n\n*Formuliere eine präzise und hilfreiche Antwort basierend auf den gefundenen Informationen...*"
+            
+            # Zeige die Frage an
+            if "query_to_retrieve_or_answer" in step_output:
+                message_content += f"\n\n**Frage**: {step_output['query_to_retrieve_or_answer']}"
+        elif current_state == "hallucination_check":
+            # Zeige Fortschritt für Halluzinationsprüfung
+            message_content += "\n\n*Überprüfe, ob die generierte Antwort auf den abgerufenen Fakten basiert...*"
+        elif current_state == "relevance_check":
+            # Zeige Fortschritt für Relevanzprüfung
+            message_content += "\n\n*Überprüfe, ob der abgerufene Inhalt für die Anfrage relevant ist...*"
+        elif current_state == "get_final_answer":
+            # Zeige Fortschritt für endgültige Antwort
+            message_content += "\n\n*Erstelle eine umfassende Antwort basierend auf allen gesammelten Informationen...*"
         
         message = await cl.Message(content=message_content).send()
         
@@ -124,6 +151,12 @@ async def update_ui(step_output):
         # Aktualisiere den Task-Status nach kurzer Verzögerung
         task.status = cl.TaskStatus.DONE
         await task_list.send()
+        
+        # Zeige den Gedankengang an, wenn verfügbar
+        if current_state == "answer" and "reasoning" in step_output:
+            await cl.Message(content=f"🧠 **Gedankengang**:\n\n{step_output['reasoning']}").send()
+        elif current_state == "get_final_answer" and "final_reasoning" in step_output:
+            await cl.Message(content=f"🧠 **Finaler Gedankengang**:\n\n{step_output['final_reasoning']}").send()
     else:
         # Fallback für unbekannte Zustände
         await cl.Message(content=f"🔄 Verarbeite: {current_state}").send()

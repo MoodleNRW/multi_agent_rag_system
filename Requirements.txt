@@ -14,6 +14,8 @@ beautifulsoup4
 #Evaluation
 langsmith
 IPython
+ragas
+datasets
 
 #Vectorization
 langchain-weaviate
@@ -22,3 +24,8 @@ weaviate-client>=4.7.1
 #Visualization & Data
 pandas
 plotly
+
+#Additional LLM Providers
+langchain-groq
+langchain-anthropic
+langchain-ollama

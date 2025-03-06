@@ -10,16 +10,16 @@
 - [x] Funktionalität zum Leeren der Datenbank hinzufügen
 
 ## LLM-Integration
-- [ ] Integration zusätzlicher LLM-Provider (wie Groq im Notebook)
-- [ ] Strukturierte Ausgabeformate für LLMs konsistent implementieren
-- [ ] Templating-System für Prompts verbessern
-- [ ] Temperaturseinstellungen besser konfigurierbar machen
+- [x] Integration zusätzlicher LLM-Provider (wie Groq im Notebook)
+- [x] Strukturierte Ausgabeformate für LLMs konsistent implementieren
+- [x] Templating-System für Prompts verbessern
+- [x] Temperaturseinstellungen besser konfigurierbar machen
 
 ## Graph-Workflow-Verbesserungen
-- [ ] Graph-Visualisierungsfunktion vollständig implementieren (wie im Notebook)
-- [ ] Bedingte Kanten für komplexere Entscheidungslogik hinzufügen
-- [ ] Rekursionsbehandlung verbessern
-- [ ] Workflow-Fehlerbehandlung robuster gestalten
+- [x] Graph-Visualisierungsfunktion vollständig implementieren (wie im Notebook)
+- [x] Bedingte Kanten für komplexere Entscheidungslogik hinzufügen
+- [x] Rekursionsbehandlung verbessern
+- [x] Workflow-Fehlerbehandlung robuster gestalten
 
 ## Moodle-Integration
 - [ ] Moodle-API-Anbindung für Kurserstellung vollständig implementieren
@@ -36,24 +36,24 @@
 - [ ] Scheduling für regelmäßige Aktualisierungen der Datenbank
 
 ## Evaluation und Qualitätssicherung
-- [ ] Ragas-basierte Evaluationspipeline implementieren (wie im Notebook)
-- [ ] Metriken für Antwortqualität einbauen
-- [ ] Halluzinationserkennung verbessern
-- [ ] A/B-Tests zur Verbesserung der RAG-Pipeline ermöglichen
-- [ ] Feedback-Loop für kontinuierliche Verbesserung implementieren
+- [x] Ragas-basierte Evaluationspipeline implementieren (wie im Notebook)
+- [x] Metriken für Antwortqualität einbauen
+- [x] Halluzinationserkennung verbessern
+- [x] A/B-Tests zur Verbesserung der RAG-Pipeline ermöglichen
+- [x] Feedback-Loop für kontinuierliche Verbesserung implementieren
 
 ## Fragebearbeitung und -analyse
-- [ ] Frage-Umformulierung implementieren (wie im Notebook mit `rewrite_question`)
-- [ ] Chain-of-Thought Reasoning für komplexe Antworten einbauen
-- [ ] Relevanzprüfung für abgerufene Kontexte verbessern
-- [ ] Datenextraktions- und Zusammenfassungsfunktionen erweitern
+- [x] Frage-Umformulierung implementieren (wie im Notebook mit `rewrite_question`)
+- [x] Chain-of-Thought Reasoning für komplexe Antworten einbauen
+- [x] Relevanzprüfung für abgerufene Kontexte verbessern
+- [x] Datenextraktions- und Zusammenfassungsfunktionen erweitern
 
 ## Benutzerschnittstelle
 - [x] Benutzerfreundliche Fehlermeldungen bei fehlenden Daten implementieren
 - [x] Crawler-Integration in die UI für einfache Datenerfassung
-- [ ] Fortschrittsanzeige für komplexe Anfragen verbessern
+- [x] Fortschrittsanzeige für komplexe Anfragen verbessern
 - [ ] Konversationsverlauf speichern und nutzen
-- [ ] Einstellungsoptionen erweitern
+- [x] Einstellungsoptionen erweitern
 - [ ] Benutzerauthentifizierung hinzufügen
 - [ ] Mehrsprachige Unterstützung ausbauen
 
@@ -62,11 +62,22 @@
 - [ ] Einheitlichen Code-Stil implementieren
 - [ ] Vollständige Dokumentation für alle Komponenten erstellen
 - [ ] Unit-Tests für Kernfunktionen hinzufügen
-- [ ] Konfigurationsmanagement vereinheitlichen
+- [x] Konfigurationsmanagement vereinheitlichen
 
 ## Infrastruktur
 - [x] Verbesserte Fehlererkennung für die Weaviate-Datenbank
 - [ ] Docker-Konfiguration für einfacheres Deployment optimieren
-- [ ] Umgebungsvariablen und Konfigurationsmanagement verbessern
+- [x] Umgebungsvariablen und Konfigurationsmanagement verbessern
 - [ ] Performance-Optimierung für große Datenmengen
-- [ ] Ressourcenverwaltung für LLM-Aufrufe implementieren (Rate-Limiting, Kostenkontrolle) 
+- [ ] Ressourcenverwaltung für LLM-Aufrufe implementieren (Rate-Limiting, Kostenkontrolle)
+
+## Implementierte Verbesserungen aus dem Notebook
+- [x] Halluzinationsprüfung mit `is_answer_grounded_on_context` implementiert
+- [x] Relevanzprüfung mit `is_relevant_content` implementiert
+- [x] RAGAS-Evaluierungskomponente implementiert
+- [x] Erweiterte Modellunterstützung (Groq, Claude, Ollama) implementiert
+- [x] Chain-of-Thought-Reasoning für komplexe Antworten implementiert
+- [x] Verbesserte Workflow-Logik mit bedingten Kanten implementiert
+- [x] Verbesserte UI-Anzeige für Gedankengänge und Zwischenschritte
+- [x] RAGAS-Evaluierung in die UI integriert
+- [x] Konversationshistorie für Evaluierungszwecke implementiert 

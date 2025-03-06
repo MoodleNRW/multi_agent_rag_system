@@ -5,6 +5,8 @@
 - [Installation](#installation)
 - [Benutzung](#benutzung)
 - [Daten-Crawler](#daten-crawler)
+- [Evaluierung mit RAGAS](#evaluierung-mit-ragas)
+- [Erweiterte Funktionen](#erweiterte-funktionen)
 - [Abhängigkeiten](#abhängigkeiten)
 - [Beitragen](#beitragen)
 
@@ -82,6 +84,62 @@ Der Crawler wird automatisch die folgenden Schritte ausführen:
 3. Erstellen von Zusammenfassungen für jeden Abschnitt
 4. Speichern der Daten in der Weaviate-Vektordatenbank
 
+## Evaluierung mit RAGAS
+
+Das System unterstützt die Evaluierung der Antwortqualität mit RAGAS (Retrieval Augmented Generation Assessment System). RAGAS bietet verschiedene Metriken zur Bewertung der Qualität von RAG-Systemen:
+
+- **Antwortgenauigkeit (answer_correctness)**: Misst, ob die generierte Antwort sachlich korrekt ist.
+- **Treue (faithfulness)**: Misst, wie gut die generierte Antwort durch die abgerufenen Dokumente gestützt wird.
+- **Antwortrelevanz (answer_relevancy)**: Misst, wie relevant die generierte Antwort für die Frage ist.
+- **Kontextabruf (context_recall)**: Misst den Anteil der relevanten Dokumente, die erfolgreich abgerufen wurden.
+- **Antwortähnlichkeit (answer_similarity)**: Misst die semantische Ähnlichkeit zwischen der generierten Antwort und der Ground-Truth-Antwort.
+
+### Evaluierung über die Benutzeroberfläche
+
+1. Starten Sie die Anwendung mit `chainlit run app.py`
+2. Klicken Sie auf den "📊 RAGAS-Evaluierung" Button
+3. Wählen Sie eine der folgenden Optionen:
+   - **Testdaten hochladen**: Laden Sie eine JSON-Datei mit Testdaten hoch
+   - **Aktuelle Konversation evaluieren**: Evaluieren Sie die aktuelle Konversationshistorie
+
+### Evaluierung über die Kommandozeile
+
+Sie können die Evaluierung auch über die Kommandozeile durchführen:
+
+```bash
+# Erstellen einer Beispiel-Testdatendatei
+python evaluation/run_evaluation.py --create-example --output example_test_data.json
+
+# Durchführen der Evaluierung
+python evaluation/run_evaluation.py --file example_test_data.json
+```
+
+Die Evaluierungsergebnisse werden sowohl in der Benutzeroberfläche angezeigt als auch in einer JSON-Datei gespeichert.
+
+## Erweiterte Funktionen
+
+Das System wurde mit mehreren fortschrittlichen Funktionen erweitert:
+
+### Halluzinationsprüfung
+
+Die Halluzinationsprüfung überprüft, ob die generierten Antworten auf den abgerufenen Fakten basieren. Dies verbessert die Zuverlässigkeit der Antworten erheblich.
+
+### Relevanzprüfung
+
+Die Relevanzprüfung bewertet, ob der abgerufene Kontext für die Anfrage relevant ist. Dies verbessert die Qualität der Antworten, indem irrelevante Informationen herausgefiltert werden.
+
+### Chain-of-Thought-Reasoning
+
+Das System verwendet Chain-of-Thought-Reasoning, um komplexe Fragen zu beantworten. Dies ermöglicht eine transparente Darstellung des Denkprozesses und verbessert die Nachvollziehbarkeit der Antworten.
+
+### Erweiterte Modellunterstützung
+
+Das System unterstützt verschiedene LLM-Provider:
+- OpenAI (GPT-4, GPT-3.5)
+- Groq (Llama 3)
+- Claude (optional)
+- Ollama (optional)
+
 ## Abhängigkeiten
 
 Die Chainlit-Anwendung benötigt folgende Hauptabhängigkeiten:
@@ -92,6 +150,8 @@ Die Chainlit-Anwendung benötigt folgende Hauptabhängigkeiten:
 - **Weaviate**: Als Vektordatenbank
 - **OpenAI**: Für die Verbindung zur KI-API
 - **Requests & BeautifulSoup4**: Für Web-Crawling
+- **RAGAS**: Für die Evaluierung der Antwortqualität
+- **Datasets**: Für die Verwaltung von Evaluierungsdaten
 
 Alle erforderlichen Pakete sind in der `Requirements.txt`-Datei aufgelistet.
 
