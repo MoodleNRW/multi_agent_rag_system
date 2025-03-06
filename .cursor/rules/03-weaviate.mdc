@@ -1,0 +1,151 @@
+---
+description: Richtlinien für die Arbeit mit der Weaviate-Vektordatenbank
+globs: **/vector_stores/*.py
+alwaysApply: false
+---
+ # Weaviate-spezifische Regeln
+
+## Weaviate-Vektordatenbank
+
+- Stelle sicher, dass Verbindungen ordnungsgemäß geöffnet und geschlossen werden:
+  ```python
+  def create_weaviate_client():
+      """Erstellt einen neuen Weaviate-Client"""
+      try:
+          client = weaviate.Client(
+              url=f"http://localhost:8090",  # Weaviate-Port
+              additional_headers={
+                  "X-OpenAI-Api-Key": os.getenv("OPENAI_API_KEY")
+              }
+          )
+          return client
+      except Exception as e:
+          logger.error(f"Fehler beim Erstellen des Weaviate-Clients: {str(e)}")
+          raise
+  
+  # Bei Beendigung schließen
+  def close_client(client):
+      """Schließt den Weaviate-Client"""
+      try:
+          if client:
+              client.close()
+              logger.info("Weaviate-Client geschlossen.")
+      except Exception as e:
+          logger.error(f"Fehler beim Schließen des Weaviate-Clients: {str(e)}")
+  ```
+
+- Implementiere Wiederverbindungslogik für Verbindungsabbrüche:
+  ```python
+  async def reconnect_weaviate_if_needed():
+      """Überprüft und stellt die Weaviate-Verbindung wieder her, falls nötig."""
+      global client
+      
+      try:
+          if not client or not client.is_ready():
+              logger.info("Weaviate-Client wird neu initialisiert...")
+              client = create_weaviate_client()
+              return True
+          return True
+      except Exception as e:
+          logger.error(f"Fehler bei der Wiederverbindung zu Weaviate: {str(e)}")
+          return False
+  ```
+
+- Optimiere das Chunking und die Einbettung von Dokumenten:
+  ```python
+  def process_documents(docs):
+      """Verarbeitet Dokumente für die Vektordatenbank"""
+      # Optimale Chunk-Größe für Weaviate
+      text_splitter = RecursiveCharacterTextSplitter(
+          chunk_size=1000,
+          chunk_overlap=100,
+          length_function=len,
+      )
+      
+      chunks = text_splitter.split_documents(docs)
+      return chunks
+  ```
+
+- Implementiere effiziente Abfragen mit geeigneten Filtermöglichkeiten:
+  ```python
+  def query_database(query, limit=5, filters=None):
+      """Führt eine Vektorabfrage mit optionalen Filtern durch"""
+      try:
+          nearText = {
+              "concepts": [query],
+              "certainty": 0.7
+          }
+          
+          result = client.query.get(
+              "Document", ["content", "metadata", "url"]
+          ).with_near_text(
+              nearText
+          ).with_limit(limit)
+          
+          if filters:
+              result = result.with_where(filters)
+              
+          return result.do()
+      except Exception as e:
+          logger.error(f"Fehler bei der Vektorabfrage: {str(e)}")
+          raise
+  ```
+
+- Überprüfe regelmäßig den Datenbankstatus und -integrität:
+  ```python
+  def check_weaviate_data(client):
+      """Überprüft den Status der Weaviate-Datenbank"""
+      try:
+          # Überprüfe, ob die Klassen existieren
+          schema = client.schema.get()
+          
+          class_names = [c["class"] for c in schema["classes"]] if "classes" in schema else []
+          
+          classes_exist = all(c in class_names for c in ["Document", "Summary", "Quote"])
+          
+          # Überprüfe, ob ausreichend Daten vorhanden sind
+          has_sufficient_data = False
+          
+          if classes_exist:
+              doc_count = client.query.aggregate("Document").with_meta_count().do()
+              count = doc_count["data"]["Aggregate"]["Document"][0]["meta"]["count"]
+              has_sufficient_data = count >= MIN_DOCUMENTS_THRESHOLD
+          
+          return {
+              "classes_exist": classes_exist,
+              "has_sufficient_data": has_sufficient_data
+          }
+      except Exception as e:
+          logger.error(f"Fehler bei der Überprüfung der Weaviate-Daten: {str(e)}")
+          return {
+              "classes_exist": False,
+              "has_sufficient_data": False
+          }
+  ```
+
+- Stelle sicher, dass ausreichend Daten für RAG vorhanden sind:
+  ```python
+  def ensure_data_availability():
+      """Stellt sicher, dass ausreichend Daten für RAG verfügbar sind"""
+      data_status = check_weaviate_data(client)
+      
+      if not data_status["classes_exist"] or not data_status["has_sufficient_data"]:
+          raise InsufficientDataError("Nicht genügend Daten in der Vektordatenbank vorhanden")
+      
+      return True
+  ```
+
+- Verwende einen globalen Client für konsistente Zugriffe:
+  ```python
+  # Singleton-Pattern für den Weaviate-Client
+  _global_client = None
+
+  def ensure_global_client():
+      """Stellt sicher, dass ein globaler Weaviate-Client existiert"""
+      global _global_client
+      
+      if _global_client is None:
+          _global_client = create_weaviate_client()
+      
+      return _global_client
+  ```

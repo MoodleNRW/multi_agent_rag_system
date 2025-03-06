@@ -1,0 +1,246 @@
+---
+description: Richtlinien für die Implementierung der Retrieval Augmented Generation
+globs: **/agent/retriever.py, **/agent/answerer.py
+alwaysApply: false
+---
+ # RAG-Implementierungsregeln
+
+## RAG-Implementierung
+
+- Optimiere die Retrieval-Strategien für unterschiedliche Anwendungsfälle:
+  ```python
+  async def run_qualitative_chunks_retrieval_workflow(state: PlanExecute):
+      """
+      Führt einen qualitativen Retrieval-Prozess für Chunks durch.
+      Args:
+          state: Der aktuelle Zustand der Plan-Ausführung.
+      Returns:
+          Der aktualisierte Zustand mit den abgerufenen Chunks.
+      """
+      query = state["query_to_retrieve_or_answer"]
+      
+      # Hole Retriever aus der User-Session
+      retrievers = cl.user_session.get("retrievers")
+      chunks_retriever = retrievers.get("chunks")
+      
+      # Führe die Abfrage durch
+      docs = chunks_retriever.get_relevant_documents(query)
+      
+      # Verarbeite die Ergebnisse
+      # ...
+      
+      return state
+  ```
+
+- Implementiere verschiedene Retrievers für unterschiedliche Informationsbedürfnisse:
+  ```python
+  def create_retrievers():
+      """
+      Erstellt die verschiedenen Retriever für das RAG-System.
+      Returns:
+          Tupel aus (chunks_retriever, summaries_retriever, quotes_retriever)
+      """
+      # Erstelle Weaviate-Client
+      client = ensure_global_client()
+      
+      # Chunks-Retriever - für detaillierte Informationen
+      chunks_retriever = WeaviateHybridSearchRetriever(
+          client=client,
+          index_name="Document",
+          text_key="content",
+          k=5,
+          alpha=0.5,  # Balance zwischen Vektor- und Keyword-Suche
+      )
+      
+      # Summaries-Retriever - für Überblicksinformationen
+      summaries_retriever = WeaviateHybridSearchRetriever(
+          client=client,
+          index_name="Summary",
+          text_key="content",
+          k=3,
+          alpha=0.75,  # Stärkere Gewichtung auf Vektorsuche für Summaries
+      )
+      
+      # Quotes-Retriever - für genaue Zitate und Referenzen
+      quotes_retriever = WeaviateHybridSearchRetriever(
+          client=client,
+          index_name="Quote",
+          text_key="content",
+          k=2,
+          alpha=0.25,  # Stärkere Gewichtung auf Keyword-Suche für Quotes
+      )
+      
+      return chunks_retriever, summaries_retriever, quotes_retriever
+  ```
+
+- Stelle sicher, dass der Kontext für die Generation ausreichend und relevant ist:
+  ```python
+  def filter_and_rank_context(contexts, query):
+      """
+      Filtert und ordnet Kontexte nach Relevanz für die Abfrage.
+      Args:
+          contexts: Liste von Kontexten
+          query: Die Benutzerabfrage
+      Returns:
+          Gefilterter und nach Relevanz sortierter Kontext
+      """
+      # Berechne Relevanz-Scores
+      scored_contexts = []
+      
+      for ctx in contexts:
+          # Verwende einfache Heuristik für die Bewertung
+          score = compute_relevance_score(ctx, query)
+          scored_contexts.append((ctx, score))
+      
+      # Sortiere nach Score
+      sorted_contexts = sorted(scored_contexts, key=lambda x: x[1], reverse=True)
+      
+      # Filtere Kontext mit niedrigem Score
+      filtered_contexts = [ctx for ctx, score in sorted_contexts if score > RELEVANCE_THRESHOLD]
+      
+      # Begrenze die Gesamtlänge
+      result = limit_context_length(filtered_contexts, MAX_CONTEXT_LENGTH)
+      
+      return result
+  ```
+
+- Implementiere Techniken zur Verbesserung der Antwortqualität:
+  ```python
+  async def rewrite_query(query):
+      """
+      Formuliert die Abfrage um, um bessere Retrieval-Ergebnisse zu erzielen.
+      Args:
+          query: Die ursprüngliche Benutzerabfrage
+      Returns:
+          Die umformulierte Abfrage
+      """
+      prompt = """
+      Given the user query, rewrite it to be more effective for retrieval from a vector database
+      about Moodle documentation. Make it more specific, use technical terms where appropriate,
+      and ensure it's focused on retrieving relevant information.
+      
+      Original query: {query}
+      
+      Rewritten query:
+      """
+      
+      prompt_template = PromptTemplate(template=prompt, input_variables=["query"])
+      chain = prompt_template | get_llm()
+      
+      rewritten_query = await chain.ainvoke({"query": query})
+      
+      return rewritten_query
+  ```
+
+- Berücksichtige Methoden zur Halluzinationsreduktion und -erkennung:
+  ```python
+  def verify_answer_with_sources(answer, sources):
+      """
+      Überprüft die Antwort auf Halluzinationen durch Vergleich mit den Quellen.
+      Args:
+          answer: Die generierte Antwort
+          sources: Die verwendeten Quellen
+      Returns:
+          Überprüfte Antwort mit Konfidenzwert und Quellenangaben
+      """
+      # Extrahiere Behauptungen aus der Antwort
+      claims = extract_factual_claims(answer)
+      
+      # Überprüfe jede Behauptung gegen die Quellen
+      verified_claims = []
+      for claim in claims:
+          support = find_support_in_sources(claim, sources)
+          verified_claims.append({
+              "claim": claim,
+              "supported": support["supported"],
+              "confidence": support["confidence"],
+              "source": support["source"]
+          })
+      
+      # Markiere ungeprüfte oder schlecht unterstützte Behauptungen
+      hallucination_score = compute_hallucination_score(verified_claims)
+      
+      # Füge Quellenangaben hinzu
+      answer_with_sources = add_source_citations(answer, verified_claims)
+      
+      return {
+          "answer": answer_with_sources,
+          "hallucination_score": hallucination_score,
+          "verified_claims": verified_claims
+      }
+  ```
+
+- Füge Funktionen für Quellenangaben und Zitate hinzu:
+  ```python
+  def format_answer_with_citations(answer, sources):
+      """
+      Formatiert die Antwort mit Quellenangaben.
+      Args:
+          answer: Die generierte Antwort
+          sources: Die verwendeten Quellen
+      Returns:
+          Formatierte Antwort mit Quellenangaben
+      """
+      # Füge Quellenabschnitt hinzu
+      sources_section = "\n\n**Quellen:**\n"
+      for i, source in enumerate(sources, 1):
+          url = source.get("url", "")
+          title = source.get("title", "Unbekannte Quelle")
+          sources_section += f"{i}. [{title}]({url})\n"
+      
+      # Formatiere den Haupttext mit Zitatreferenzen
+      cited_answer = answer
+      for i, source in enumerate(sources, 1):
+          citation_marker = f"[{i}]"
+          if source["text"] in answer:
+              cited_answer = cited_answer.replace(
+                  source["text"], 
+                  f"{source['text']} {citation_marker}"
+              )
+      
+      return cited_answer + sources_section
+  ```
+
+- Nutze Multi-Step Reasoning für komplexe Fragen:
+  ```python
+  async def answer_with_reasoning(query, context):
+      """
+      Beantworte die Frage mit einem mehrstufigen Reasoning-Ansatz.
+      Args:
+          query: Die Benutzerabfrage
+          context: Der abgerufene Kontext
+      Returns:
+          Antwort mit transparentem Reasoning-Prozess
+      """
+      reasoning_prompt = """
+      I want you to answer the question step by step, using the provided context.
+      
+      Context:
+      {context}
+      
+      Question:
+      {query}
+      
+      Let's think through this systematically:
+      1. What key information from the context is relevant to this question?
+      2. Are there any constraints or conditions I need to consider?
+      3. What is the logical reasoning process to reach the answer?
+      4. Is my answer fully supported by the provided context?
+      
+      Based on this reasoning, the answer is:
+      """
+      
+      prompt_template = PromptTemplate(
+          template=reasoning_prompt, 
+          input_variables=["context", "query"]
+      )
+      
+      chain = prompt_template | get_llm()
+      
+      response = await chain.ainvoke({
+          "context": context,
+          "query": query
+      })
+      
+      return response
+  ```

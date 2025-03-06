@@ -1,0 +1,176 @@
+---
+description: Richtlinien für die Arbeit mit MCP-Tools im Projekt
+globs: **/*.py
+alwaysApply: false
+---
+ # MCP-Tools-Regeln
+
+## MCP-Tools Integration
+
+MCP-Tools (Multi-Chain Processing Tools) sind eine Sammlung von Tools, die im Projekt verwendet werden können, um komplexe Verarbeitungsabläufe zu implementieren.
+
+### Sequentielles Denken (Sequential Thinking)
+
+Dieses Tool ermöglicht eine schrittweise Problemlösung mit dynamischer Anpassung des Denkprozesses:
+
+```python
+from mcp_tools import sequential_thinking
+
+def solve_complex_problem(problem_description):
+    """
+    Löst ein komplexes Problem mit sequentiellem Denken.
+    Args:
+        problem_description: Beschreibung des Problems
+    Returns:
+        Lösung des Problems
+    """
+    solution = sequential_thinking(
+        problem=problem_description,
+        total_thoughts=5,  # Initial geschätzte Anzahl der Denkschritte
+        allow_revision=True,  # Erlaube Revisionen früherer Gedanken
+        need_hypothesis=True,  # Generiere und überprüfe Hypothesen
+        ignore_irrelevant=True  # Ignoriere irrelevante Informationen
+    )
+    
+    return solution
+```
+
+### Browser-Automation
+
+Diese Tools ermöglichen die Automatisierung von Browser-Aufgaben:
+
+```python
+from mcp_tools import browser_automation
+
+async def extract_moodle_documentation(url):
+    """
+    Extrahiert Moodle-Dokumentation von einer Webseite.
+    Args:
+        url: URL der Webseite
+    Returns:
+        Extrahierte Dokumentation
+    """
+    # Browser öffnen
+    browser = await browser_automation.launch()
+    
+    try:
+        # Zu URL navigieren
+        await browser_automation.navigate(browser, url)
+        
+        # Screenshot machen
+        await browser_automation.screenshot(
+            browser, 
+            "moodle_docs.png",
+            width=1200,
+            height=800
+        )
+        
+        # Elemente finden und klicken
+        await browser_automation.click(browser, selector="button.expand-all")
+        
+        # Warten und Text extrahieren
+        content = await browser_automation.evaluate(
+            browser, 
+            "document.querySelector('main.content').innerText"
+        )
+        
+        return content
+    finally:
+        # Browser schließen
+        await browser.close()
+```
+
+### Evaluierung und Qualitätssicherung
+
+MCP-Tools für Evaluierungen:
+
+```python
+from mcp_tools import evaluation
+
+def evaluate_rag_quality(questions, answers, contexts):
+    """
+    Evaluiert die Qualität des RAG-Systems.
+    Args:
+        questions: Liste von Fragen
+        answers: Liste von Antworten
+        contexts: Liste von verwendeten Kontexten
+    Returns:
+        Evaluierungsbericht
+    """
+    # Evaluiere Antwortrelevanz
+    relevance_scores = evaluation.evaluate_relevance(questions, answers)
+    
+    # Evaluiere Kontext-Verwendung
+    context_usage_scores = evaluation.evaluate_context_usage(answers, contexts)
+    
+    # Evaluiere Faktengenauigkeit
+    factuality_scores = evaluation.evaluate_factuality(answers, contexts)
+    
+    # Evaluiere Halluzinationen
+    hallucination_scores = evaluation.evaluate_hallucinations(answers, contexts)
+    
+    # Erstelle Gesamtbewertung
+    overall_scores = {
+        "relevance": sum(relevance_scores) / len(relevance_scores),
+        "context_usage": sum(context_usage_scores) / len(context_usage_scores),
+        "factuality": sum(factuality_scores) / len(factuality_scores),
+        "hallucination": sum(hallucination_scores) / len(hallucination_scores)
+    }
+    
+    return {
+        "detailed_scores": {
+            "relevance": relevance_scores,
+            "context_usage": context_usage_scores,
+            "factuality": factuality_scores,
+            "hallucination": hallucination_scores
+        },
+        "overall_scores": overall_scores
+    }
+```
+
+### Datenaggregation und -analyse
+
+MCP-Tools für Datenaggregation:
+
+```python
+from mcp_tools import data_analysis
+
+def analyze_query_patterns(user_queries):
+    """
+    Analysiert Muster in Benutzeranfragen.
+    Args:
+        user_queries: Liste von Benutzeranfragen
+    Returns:
+        Analyseergebnisse
+    """
+    # Extrahiere Themen
+    topics = data_analysis.extract_topics(user_queries)
+    
+    # Clustere Anfragen
+    clusters = data_analysis.cluster_queries(user_queries)
+    
+    # Analysiere Komplexität
+    complexity_scores = data_analysis.assess_complexity(user_queries)
+    
+    # Identifiziere Trends
+    trends = data_analysis.identify_trends(user_queries, time_series=True)
+    
+    return {
+        "topics": topics,
+        "clusters": clusters,
+        "complexity": complexity_scores,
+        "trends": trends
+    }
+```
+
+### Best Practices für MCP-Tools
+
+1. **Verwende aussagekräftige Methodennamen**: Benenne Funktionen so, dass ihr Zweck klar ist.
+2. **Implementiere Fehlerbehandlung**: Fange Ausnahmen und schließe Ressourcen ordnungsgemäß.
+3. **Dokumentiere Parameter**: Beschreibe die Parameter und Rückgabewerte jeder Methode.
+4. **Setze sinnvolle Standardwerte**: Definiere vernünftige Defaults für optionale Parameter.
+5. **Limitiere API-Aufrufe**: Achte auf Rate-Limits und implementiere Backoff-Strategien.
+6. **Achte auf Ressourcenfreigabe**: Schließe Browser-Instanzen und andere Ressourcen ordnungsgemäß.
+7. **Validiere Eingaben**: Überprüfe Eingaben vor der Verwendung in MCP-Tools.
+8. **Achte auf Asynchronität**: Verwende `async/await` korrekt bei asynchronen Tools.
+9. **Implementiere Logging**: Protokolliere wichtige Aktionen für die Fehlerbehebung.

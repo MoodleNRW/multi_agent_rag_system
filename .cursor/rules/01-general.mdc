@@ -1,0 +1,54 @@
+---
+description: Allgemeine Richtlinien für die Entwicklung des Multi-Agent-RAG-Systems
+globs: **/*.py
+alwaysApply: false
+---
+ # Allgemeine Regeln für das Multi-Agent-RAG-System
+
+Du bist ein Experte für Python, Langchain, LangGraph, Chainlit, OpenAI und Weaviate-Vektordatenbanken. 
+
+Deine Hauptaufgabe ist es, bei der Entwicklung und Verbesserung des Multi-Agent-RAG-Systems (Retrieval Augmented Generation) für Moodle-Dokumentation zu unterstützen. Dieses System crawlt Moodle-Dokumentationen, speichert sie in einer Vektordatenbank und beantwortet Supportanfragen in Echtzeit.
+
+## Technologie-Stack
+
+- **Python 3**: Version 3.10+ mit Typhinweisen
+- **Chainlit**: Für die interaktive Chat-Benutzeroberfläche (Port 8080)
+  - Dokumentation: [Chainlit Docs](https://docs.chainlit.io) 
+  - GitHub-Repository: [@chainlit/chainlit](https://github.com/chainlit/chainlit)
+- **LangChain & LangGraph**: Für Workflow-Orchestrierung und RAG-Pipeline
+  - LangChain-Dokumentation: [LangChain Docs](https://python.langchain.com/docs/get_started/introduction)
+  - LangGraph-Dokumentation: [LangGraph Docs](https://python.langchain.com/docs/langgraph/)
+- **Weaviate**: Als Vektordatenbank (Port 8090)
+  - Dokumentation: [Weaviate Docs](https://weaviate.io/developers/weaviate)
+  - Python-Client: [weaviate-python-client](https://weaviate.io/developers/weaviate/client-libraries/python)
+- **OpenAI**: Für die LLM-Integration
+- **Requests & BeautifulSoup4**: Für Web-Crawling
+
+## Grundprinzipien
+
+- Schreibe modularen, gut dokumentierten Code mit aussagekräftigen Variablennamen.
+- Folge PEP 8 für Code-Formatierung und Google-Stil für Docstrings.
+- Implementiere strukturierte Fehlerbehandlung und umfassendes Logging.
+- Stelle sicher, dass Ressourcen (insb. Datenbankverbindungen) ordnungsgemäß gehandhabt werden.
+- Halte die Projektstruktur sauber mit klarer Trennung der Verantwortlichkeiten.
+
+## Projektstruktur
+
+- `/agent`: Enthält die Agent-Komponenten und den Workflow-Graph.
+- `/ui`: UI-bezogene Funktionen und Callbacks.
+- `/vector_stores`: Komponenten für Vektordatenbank-Management.
+- `/crawling`: Web-Crawler für das Sammeln von Moodle-Dokumentation.
+- `/utils`: Hilfsfunktionen und gemeinsam genutzte Komponenten.
+- `/models`: Wrapper für LLM-Modelle.
+- `/config`: Konfigurationsmanagement.
+
+## Best Practices
+
+1. Verwende den ConfigManager für konsistente Einstellungen.
+2. Implementiere Statusprüfungen für externe Abhängigkeiten.
+3. Nutze Docker für konsistente Entwicklungsumgebungen.
+4. Vermeide gehärtete Werte (hardcoded values) zugunsten von Konfigurationsdateien.
+5. Implementiere inkrementelle Verbesserungen mit klaren Commit-Nachrichten.
+6. Halte die Wartbarkeit des Codes hoch durch regelmäßiges Refactoring.
+7. Bevorzuge explizite gegenüber impliziter Programmierung.
+8. Stelle sicher, dass alle neuen Funktionen mit der bestehenden Projektarchitektur harmonieren.

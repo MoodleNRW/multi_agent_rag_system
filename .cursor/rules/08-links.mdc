@@ -1,0 +1,53 @@
+---
+description:  Sammlung wichtiger Links und Ressourcen für das Projekt
+globs: **/*
+alwaysApply: false
+---
+ # Nützliche Links und Ressourcen
+
+## Offizielle Dokumentationen
+Docs auch mit @ ansprechbar.
+
+### Chainlit
+- [Chainlit Dokumentation](https://docs.chainlit.io) 
+- [Chainlit LangChain/LangGraph Integration](https://docs.chainlit.io/integrations/langchain)
+- [Chainlit GitHub](https://github.com/chainlit/chainlit)
+- Port: 8080 (Frontend)
+
+### Weaviate
+
+- [Weaviate Dokumentation](https://weaviate.io/developers/weaviate)
+- [Weaviate Python Client](https://weaviate.io/developers/weaviate/client-libraries/python)
+- [LangChain Weaviate Integration](https://python.langchain.com/docs/integrations/vectorstores/weaviate/)
+- Port: 8090 (Vektordatenbank)
+
+### LangChain/LangGraph
+
+- [LangChain Dokumentation](https://python.langchain.com/docs/get_started/introduction)
+- [LangGraph Dokumentation](https://python.langchain.com/docs/langgraph/)
+- [LangChain GitHub](https://github.com/langchain-ai/langchain)
+- [LangGraph GitHub](https://github.com/langchain-ai/langgraph)
+
+### OpenAI
+
+- [OpenAI API Dokumentation](https://platform.openai.com/docs/api-reference)
+- [OpenAI Python Client](https://github.com/openai/openai-python)
+
+## Projektspezifische Ressourcen
+
+### Moodle
+
+- [Moodle Dokumentation](https://docs.moodle.org/dev/Main_Page)
+- [Moodle API Dokumentation](https://docs.moodle.org/dev/Web_service_API_functions)
+
+### Entwicklungswerkzeuge
+
+- [Python PEP 8 Stilrichtlinien](https://peps.python.org/pep-0008/)
+- [Docker Dokumentation](https://docs.docker.com)
+- [Docker Compose Dokumentation](https://docs.docker.com/compose/)
+
+### RAG (Retrieval Augmented Generation)
+
+- [Langchain RAG Dokumentation](https://python.langchain.com/docs/use_cases/question_answering/)
+- [Weaviate RAG Anleitung](https://weaviate.io/blog/what-is-rag)
+- [Evaluierung von RAG Pipelines](https://python.langchain.com/docs/guides/evaluation/qa_benchmarking)

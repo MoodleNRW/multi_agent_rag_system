@@ -1,0 +1,97 @@
+---
+description: Richtlinien für die Arbeit mit LangGraph und Langchain
+globs: **/agent/*.py
+alwaysApply: false
+---
+ # LangGraph/Langchain-spezifische Regeln
+ 
+## LangGraph/Langchain Framework
+
+- Nutze StateGraph für die Definition des Agent-Workflows:
+  ```python
+  workflow = StateGraph(PlanExecute)
+  workflow.add_node("anonymize_question", anonymize_queries)
+  workflow.set_entry_point("anonymize_question")
+  workflow.add_edge("anonymize_question", "planner")
+  ```
+
+- Implementiere klar definierte Knoten für jeden Schritt im Workflow.
+- Vermeide tiefe Verschachtelungen und komplexe Bedingungen im Graph.
+- Halte den Zustand (State) schlank und verwende typisierte Datenstrukturen:
+  ```python
+  class PlanExecute(TypedDict):
+      question: str
+      anonymized_question: str
+      query_to_retrieve_or_answer: str
+      plan: List[str]
+      past_steps: List[str]
+      mapping: Dict[str, str]
+      curr_context: str
+      aggregated_context: str
+      tool: str
+      response: str
+  ```
+
+- Dokumentiere die Funktion jedes Knotens mit dem cl.step-Dekorator:
+  ```python
+  @cl.step(name="Plan Step", type="process")
+  async def plan_step(state: PlanExecute):
+      """
+      Plans the next step.
+      Args:
+          state: The current state of the plan execution.
+      Returns:
+          The updated state with the plan.
+      """
+      # Implementation...
+      return state
+  ```
+
+- Implementiere robuste Fehlerbehandlung im Workflow, insbesondere für Rekursionsfälle:
+  ```python
+  try:
+      async for step_output in workflow.astream(initial_state, config=config):
+          last_key = next(iter(step_output))
+          await update_ui(step_output[last_key])
+  except GraphRecursionError:
+      # Handle recursion errors
+      res = await support_summary_step(step_output[last_key])
+      logger.warning("Der Workflow hat das Rekursionslimit erreicht.")
+  ```
+
+- Verwende konditionale Kanten für komplexe Entscheidungslogik:
+  ```python
+  workflow.add_conditional_edges(
+      "task_handler",
+      retrieve_or_answer,
+      {
+          "chosen_tool_is_retrieve_chunks": "retrieve_chunks",
+          "chosen_tool_is_retrieve_summaries": "retrieve_summaries",
+          "chosen_tool_is_answer": "answer"
+      }
+  )
+  ```
+
+- Nutze LangChain-Ketten für die Verarbeitung von Prompts:
+  ```python
+  planner_prompt = PromptTemplate(
+      template=planner_prompt,
+      input_variables=["question"], 
+  )
+  planner_llm = get_llm()
+  planner = planner_prompt | planner_llm.with_structured_output(Plan, strict=True)
+  ```
+
+- Verwende strukturierte Ausgabeformate für LLMs:
+  ```python
+  class Plan(BaseModel):
+      """Plan to follow in future"""
+      steps: List[str] = Field(
+          description="different steps to follow, should be in sorted order"
+      )
+  ```
+
+- Nutze die EndOfExecution-Konvention, um den Workflow zu beenden:
+  ```python
+  workflow.add_edge("get_final_answer", END)
+  ```

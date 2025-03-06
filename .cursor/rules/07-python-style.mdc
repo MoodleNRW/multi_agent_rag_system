@@ -1,0 +1,261 @@
+---
+description: Stilrichtlinien für Python-Code im Projekt
+globs: **/*.py
+alwaysApply: false
+---
+ # Python-Stilrichtlinien
+
+## Python-Stilrichtlinien
+
+- Befolge PEP 8 für Code-Formatierung und Namenskonventionen:
+
+```python
+# Richtig: Variablennamen in snake_case
+user_input = get_user_query()
+
+# Richtig: Klassennamen in CamelCase
+class DocumentRetriever:
+    pass
+
+# Richtig: Konstanten in UPPERCASE
+MAX_DOCUMENT_LENGTH = 1000
+MIN_DOCUMENTS_THRESHOLD = 10
+```
+
+- Verwende Typhinweise für Funktionsparameter und Rückgabewerte:
+
+```python
+from typing import List, Dict, Optional, Union, Tuple, Any
+
+def get_relevant_documents(
+    query: str,
+    limit: int = 5,
+    min_score: float = 0.7
+) -> List[Dict[str, Any]]:
+    """
+    Holt relevante Dokumente basierend auf einer Abfrage.
+    Args:
+        query: Die Suchanfrage
+        limit: Maximale Anzahl der zurückzugebenden Dokumente
+        min_score: Minimaler Ähnlichkeitswert
+    Returns:
+        Liste der relevanten Dokumente
+    """
+    # Implementation...
+    return documents
+```
+
+- Gruppiere Importe nach Standardbibliothek, Drittanbieter und projektspezifischen Modulen:
+
+```python
+# Standardbibliothek-Importe
+import os
+import sys
+import logging
+import json
+from typing import List, Dict, Any
+
+# Drittanbieter-Importe
+import chainlit as cl
+from langchain.prompts import PromptTemplate
+from langgraph.graph import StateGraph, END
+import weaviate
+
+# Projektspezifische Importe
+from agent.state import PlanExecute
+from models.models_wrapper import get_llm
+from vector_stores.retriever import create_retrievers
+from utils.graph_visualization import display_graph
+```
+
+- Verwende Docstrings im Google-Stil für alle Funktionen und Klassen:
+
+```python
+def process_documents(documents: List[Dict[str, Any]], chunk_size: int = 1000) -> List[Dict[str, Any]]:
+    """Verarbeitet Dokumente für die Vektordatenbank.
+    
+    Diese Funktion zerlegt Dokumente in Chunks, erstellt Einbettungen und speichert
+    sie in der Vektordatenbank.
+    
+    Args:
+        documents: Eine Liste von Dokumenten zum Verarbeiten. Jedes Dokument
+            sollte mindestens einen 'text' und 'metadata' Schlüssel haben.
+        chunk_size: Die Größe der Textchunks in Zeichen. Standard ist 1000.
+        
+    Returns:
+        Eine Liste der verarbeiteten Dokument-Chunks mit Einbettungen.
+        
+    Raises:
+        ValueError: Wenn ein Dokument keinen 'text' Schlüssel hat.
+        ConnectionError: Wenn keine Verbindung zur Vektordatenbank hergestellt werden kann.
+    """
+    # Implementation...
+    return processed_chunks
+```
+
+- Implementiere strukturierte Fehlerbehandlung mit try/except-Blöcken:
+
+```python
+def query_database(query):
+    """Führt eine Abfrage gegen die Vektordatenbank aus."""
+    try:
+        # Versuche die Hauptoperation
+        client = ensure_global_client()
+        results = client.query.get("Document", ["content", "metadata"]).with_near_text({
+            "concepts": [query]
+        }).do()
+        return results
+    except weaviate.exceptions.WeaviateQueryError as e:
+        # Behandle spezifische Abfragefehler
+        logger.error(f"Fehler bei der Weaviate-Abfrage: {str(e)}")
+        raise QueryError(f"Die Abfrage konnte nicht ausgeführt werden: {str(e)}")
+    except weaviate.exceptions.WeaviateConnectionError as e:
+        # Behandle Verbindungsfehler
+        logger.error(f"Verbindungsfehler zu Weaviate: {str(e)}")
+        raise ConnectionError("Keine Verbindung zur Vektordatenbank möglich")
+    except Exception as e:
+        # Fange alle anderen Fehler
+        logger.error(f"Unerwarteter Fehler: {str(e)}", exc_info=True)
+        raise
+    finally:
+        # Code, der immer ausgeführt wird (optional)
+        pass
+```
+
+- Logge wichtige Ereignisse und Fehler mit dem logging-Modul:
+
+```python
+import logging
+
+# Konfiguriere Logger
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("app.log"),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
+
+def connect_to_database():
+    """Stellt eine Verbindung zur Datenbank her."""
+    logger.info("Verbindung zur Weaviate-Datenbank wird hergestellt...")
+    try:
+        client = create_weaviate_client()
+        logger.info("Verbindung zur Weaviate-Datenbank erfolgreich hergestellt.")
+        return client
+    except Exception as e:
+        logger.error(f"Fehler beim Verbinden mit Weaviate: {str(e)}", exc_info=True)
+        raise
+```
+
+- Halte Funktionen kurz und fokussiert auf eine Aufgabe:
+
+```python
+# Richtig: Funktion macht nur eine Sache
+def get_document_by_id(doc_id: str) -> Dict[str, Any]:
+    """Holt ein Dokument anhand seiner ID."""
+    client = ensure_global_client()
+    result = client.data_object.get_by_id(doc_id, class_name="Document")
+    return result
+
+# Richtig: Separate Funktionen für separate Aufgaben
+def validate_document(document: Dict[str, Any]) -> bool:
+    """Überprüft, ob ein Dokument gültig ist."""
+    return all(key in document for key in ["content", "metadata", "url"])
+
+def process_document(document: Dict[str, Any]) -> Dict[str, Any]:
+    """Verarbeitet ein Dokument."""
+    if not validate_document(document):
+        raise ValueError("Ungültiges Dokumentformat")
+    
+    # Verarbeitung...
+    return processed_document
+```
+
+- Verwende aussagekräftige Konstanten statt magischer Zahlen oder Zeichenketten:
+
+```python
+# Definiere Konstanten
+MIN_RELEVANCE_SCORE = 0.7
+MAX_RETRIEVAL_RESULTS = 5
+DEFAULT_CHUNK_SIZE = 1000
+DEFAULT_CHUNK_OVERLAP = 100
+WEAVIATE_URL = "http://localhost:8090"
+
+# Verwende Konstanten im Code
+def retrieve_documents(query: str) -> List[Dict[str, Any]]:
+    """Ruft Dokumente ab."""
+    results = client.query.get(
+        "Document", ["content", "metadata"]
+    ).with_near_text({
+        "concepts": [query]
+    }).with_limit(MAX_RETRIEVAL_RESULTS).do()
+    
+    # Filtere nach Relevanz
+    filtered_results = [
+        doc for doc in results["data"]["Get"]["Document"]
+        if doc.get("_additional", {}).get("score", 0) >= MIN_RELEVANCE_SCORE
+    ]
+    
+    return filtered_results
+```
+
+- Verwende kontextmanager für Ressourcenverwaltung:
+
+```python
+from contextlib import contextmanager
+
+@contextmanager
+def weaviate_client_context():
+    """Kontextmanager für Weaviate-Client."""
+    client = None
+    try:
+        client = create_weaviate_client()
+        yield client
+    finally:
+        if client:
+            client.close()
+            logger.info("Weaviate-Client geschlossen.")
+
+# Verwendung des Kontextmanagers
+def process_query(query: str) -> List[Dict[str, Any]]:
+    """Verarbeitet eine Abfrage mit einem temporären Client."""
+    with weaviate_client_context() as client:
+        results = client.query.get(
+            "Document", ["content", "metadata"]
+        ).with_near_text({
+            "concepts": [query]
+        }).do()
+        
+        return results["data"]["Get"]["Document"]
+```
+
+- Verwende funktionale Programmierkonzepte, wo angemessen:
+
+```python
+from functools import reduce
+
+def process_results(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Verarbeitet Abfrageergebnisse funktional."""
+    # Map: Transformiere jedes Ergebnis
+    transformed = map(lambda doc: {
+        "content": doc.get("content", ""),
+        "url": doc.get("metadata", {}).get("url", ""),
+        "title": doc.get("metadata", {}).get("title", "Unbekannt")
+    }, results)
+    
+    # Filter: Entferne leere Inhalte
+    filtered = filter(lambda doc: doc["content"].strip(), transformed)
+    
+    # Reduce: Kombiniere alle Inhalte
+    combined_content = reduce(
+        lambda acc, doc: f"{acc}\n\n{doc['title']}:\n{doc['content']}", 
+        filtered, 
+        ""
+    )
+    
+    return {"combined_content": combined_content}
+```
