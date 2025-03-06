@@ -137,7 +137,7 @@ async def process_message(message_content: str):
     # Kompiliere den Workflow
     workflow = await compile_workflow()
     # Visualisiere den Workflow
-    display_graph(workflow)
+    #display_graph(workflow)
     # Initialisiere den Zustand
     initial_state = PlanExecute(
         question=message_content,

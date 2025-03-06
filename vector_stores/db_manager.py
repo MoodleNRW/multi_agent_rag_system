@@ -77,30 +77,75 @@ async def on_db_visualize(action):
             await cl.Message(content="❌ Keine Datenklassen in Weaviate gefunden.").send()
             return
         
-        # Daten für den Plot sammeln
+        # Daten für den Plot sammeln - ähnlich zum erfolgreichen Datenbank-Status
         data = {"Klasse": [], "Anzahl": []}
         
+        # Die Status-Anzeige funktioniert korrekt, also kopieren wir diese Logik
         for class_name in collection_names:
             try:
+                # Methode, die beim Datenbank-Status funktioniert
                 collection = temp_client.collections.get(class_name)
-                count = collection.aggregate.over_all().with_meta_count().do()
-                obj_count = count.total_count
+                obj_count = collection.aggregate.over_all().total_count
                 
                 data["Klasse"].append(class_name)
                 data["Anzahl"].append(obj_count)
+                logger.info(f"Klasse {class_name}: {obj_count} Objekte gefunden")
             except Exception as e:
                 logger.error(f"Fehler beim Abrufen von Daten für Klasse {class_name}: {str(e)}")
+                # Trotzdem zur Liste hinzufügen, aber mit 0
+                data["Klasse"].append(class_name)
+                data["Anzahl"].append(0)
+        
+        if not any(data["Anzahl"]):  # Überprüfen, ob alle Werte 0 sind
+            await cl.Message(content="❌ Keine Daten in den Sammlungen gefunden.").send()
+            return
+            
+        logger.info(f"Gefundene Daten für Plot: {data}")
         
         # Plot erstellen
         import pandas as pd
-        import plotly.express as px
+        import plotly.graph_objects as go
         
         df = pd.DataFrame(data)
-        fig = px.bar(df, x="Klasse", y="Anzahl", title="Objekte pro Klasse in Weaviate")
         
-        # Plot anzeigen
+        # Erstelle die Figure mit verbesserten Styling
+        fig = go.Figure()
+        fig.add_trace(
+            go.Bar(
+                x=df["Klasse"].tolist(),
+                y=df["Anzahl"].tolist(),
+                name="Anzahl Objekte",
+                text=df["Anzahl"].tolist(),  # Zeige Werte auf den Balken
+                textposition='auto',
+                marker_color='rgb(26, 118, 255)',
+                hovertemplate='<b>%{x}</b><br>' +
+                            'Anzahl: %{y}<br>' +
+                            '<extra></extra>'
+            )
+        )
+        
+        fig.update_layout(
+            title={
+                'text': "Objekte pro Klasse in Weaviate",
+                'y':0.95,
+                'x':0.5,
+                'xanchor': 'center',
+                'yanchor': 'top'
+            },
+            xaxis_title="Klasse",
+            yaxis_title="Anzahl",
+            showlegend=True,
+            template='plotly_white',
+            bargap=0.3,
+            height=500,
+            margin=dict(t=100, l=70, r=40, b=70)
+        )
+        
+        # Plot mit Chainlit-Element anzeigen
         await cl.Message(content="### Datenvisualisierung").send()
-        await cl.Message(content=fig).send()
+        await cl.Message(content="", elements=[
+            cl.Plotly(figure=fig)
+        ]).send()
         
     except Exception as e:
         logger.error(f"Fehler bei der Datenvisualisierung: {str(e)}")
@@ -207,7 +252,6 @@ async def on_db_clear_all(action):
             await cl.Message(content="✅ Alle Klassen und deren Objekte wurden erfolgreich gelöscht.").send()
         except Exception as delete_error:
             logger.error(f"Fehler beim Löschen aller Klassen: {str(delete_error)}")
-            await cl.Message(content=f"⚠️ Fehler beim Löschen aller Klassen: {str(delete_error)}").send()
             
             # Versuche, jede Klasse einzeln zu löschen
             success_count = 0
