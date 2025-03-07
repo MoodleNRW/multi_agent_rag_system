@@ -10,9 +10,10 @@ openai
 typing
 requests
 beautifulsoup4
+python-dotenv
 
 #Evaluation
-langsmith
+langsmith>=0.1.10
 IPython
 ragas
 datasets
@@ -32,3 +33,6 @@ langchain-ollama
 
 #Crawler
 html2text
+
+#LangSmith-Tracing
+langchain-cli

@@ -4,6 +4,7 @@ import chainlit as cl
 from models.models_wrapper import get_llm
 from langchain.prompts import PromptTemplate
 from .state import PlanExecute
+from langsmith import traceable
 
 class SupportSummary(BaseModel):
     """Zusammenfassung für den Supportmitarbeiter"""
@@ -15,6 +16,7 @@ class SupportSummary(BaseModel):
     suggestions: str = Field(description="Vorschläge, wie weiter vorzugehen ist")
     critical_analysis: str = Field(description="Kritische Analyse des Systems und Verbesserungsvorschläge")
 
+@traceable(pass_config=False)
 @cl.step(name="Support Summary", type="tool")
 async def support_summary_step(state: PlanExecute):
     """

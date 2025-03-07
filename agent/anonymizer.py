@@ -6,6 +6,7 @@ from langchain.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from typing import Dict, Optional
 import json
+from langsmith import traceable
 
 class AnonymizeQuestion(BaseModel):
     """Output Schema for the Anonymize Question tool."""
@@ -15,6 +16,7 @@ class AnonymizeQuestion(BaseModel):
     )
     explanation: str = Field(description="Explanation of the anonymization process.")
 
+@traceable(pass_config=False)
 @cl.step(name="Anonymize Query", type="tool")
 async def anonymize_queries(state: PlanExecute):
     """
@@ -91,6 +93,7 @@ Format Instructions: {format_instructions}
 class DeAnonymizePlan(BaseModel):
     """Possible results of the action."""
     plan: list[str] = Field(description="Plan to follow in future. with all the variables replaced with the mapped words.")
+@traceable(pass_config=False)
 @cl.step(name="Deanonymize Plan", type="tool")
 async def deanonymize_queries(state: PlanExecute):
     """

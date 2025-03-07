@@ -1,4 +1,6 @@
+import asyncio
 import chainlit as cl
+from langsmith import traceable
 from .state import PlanExecute
 from models.models_wrapper import get_llm
 from langchain.prompts import PromptTemplate
@@ -10,6 +12,7 @@ class CanBeAnsweredOutput(BaseModel):
     can_be_answered: bool = Field(description="Whether the question can be fully answered or not based on the given context.")
     explanation: str = Field(description="An explanation of why the question can or cannot be fully answered.")
 
+@traceable(pass_config=False)
 @cl.step(name="Verify Answer", type="process")
 async def can_be_answered(state: PlanExecute):
     can_be_answered_prompt_template = """You are an AI assistant tasked with determining if a given question can be fully answered based on the provided context.

@@ -1,4 +1,5 @@
 import chainlit as cl
+from langsmith import traceable
 from pydantic import BaseModel, Field
 from models.models_wrapper import get_llm
 from langchain.prompts import PromptTemplate
@@ -14,6 +15,7 @@ class IsGroundedOnFacts(BaseModel):
     grounded_on_facts: bool = Field(description="Antwort ist in den Fakten begründet, 'ja' oder 'nein'")
     explanation: str = Field(description="Erklärung, warum die Antwort in den Fakten begründet ist oder nicht")
 
+@traceable(pass_config=False)
 @cl.step(name="Halluzinationsprüfung", type="process")
 async def is_answer_grounded_on_context(state: PlanExecute):
     """

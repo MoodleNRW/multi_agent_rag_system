@@ -4,6 +4,8 @@ import chainlit as cl
 from langgraph.graph import StateGraph, END
 from models.models_wrapper import get_llm
 from langchain.prompts import PromptTemplate
+from langsmith import traceable
+
 
 from pydantic import BaseModel, Field
 from typing import List
@@ -25,6 +27,7 @@ from .hallucination_checker import is_answer_grounded_on_context
 from .relevance_checker import is_relevant_content
 
 # Neuer gemeinsamer Node für die Relevanzprüfung nach dem Retrieval
+@traceable(pass_config=False)
 @cl.step(name="Keep Only Relevant Content", type="process")
 async def keep_only_relevant_content(state: PlanExecute):
     """
@@ -223,7 +226,7 @@ class Plan(BaseModel):
     steps: List[str] = Field(
         description="different steps to follow, should be in sorted order"
     )
-
+@traceable(pass_config=False)
 @cl.step(name="Plan Step", type="process")
 async def plan_step(state: PlanExecute):
     """
@@ -263,6 +266,7 @@ async def plan_step(state: PlanExecute):
 
     return state
 
+@traceable(pass_config=False)
 @cl.step(name="Break Down Plan", type="process")
 async def break_down_plan_step(state: PlanExecute):
     """
@@ -314,6 +318,7 @@ async def break_down_plan_step(state: PlanExecute):
 
     return state
 
+@traceable(pass_config=False)
 @cl.step(name="Replan", type="process")
 async def replan_step(state: PlanExecute):
     """

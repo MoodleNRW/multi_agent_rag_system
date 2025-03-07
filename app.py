@@ -8,7 +8,7 @@ import json
 import asyncio
 from typing import Dict, Any, List, Optional
 import dotenv
-
+from langsmith import traceable
 # Import eigene Module 
 from agent.support_summary_generator import support_summary_step
 from config.config_manager import ConfigManager
@@ -160,6 +160,7 @@ async def on_message(message: cl.Message):
     except Exception as e:
         await cl.Message(content=f"Ein Fehler ist aufgetreten: {str(e)}").send()
 
+@traceable(pass_config=False)
 @cl.step(name="Process Message", type="process")
 async def process_message(message_content: str):
     """

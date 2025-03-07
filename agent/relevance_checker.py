@@ -1,4 +1,5 @@
 import chainlit as cl
+from langsmith import traceable
 from pydantic import BaseModel, Field
 from models.models_wrapper import get_llm
 from langchain.prompts import PromptTemplate
@@ -15,6 +16,7 @@ class Relevance(BaseModel):
     is_relevant: bool = Field(description="Ob das Dokument für die Anfrage relevant ist.")
     explanation: str = Field(description="Eine Erklärung, warum das Dokument relevant ist oder nicht.")
 
+@traceable(pass_config=False)
 @cl.step(name="Relevanzprüfung", type="process")
 async def is_relevant_content(state: PlanExecute):
     """

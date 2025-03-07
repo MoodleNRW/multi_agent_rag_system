@@ -1,4 +1,5 @@
 import chainlit as cl
+from langsmith import traceable
 from .state import PlanExecute
 import weaviate
 from weaviate.connect import ConnectionParams
@@ -18,6 +19,7 @@ API_KEY = os.getenv('OPENAI_API_KEY')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+@traceable(pass_config=False)
 @cl.step(name="Check FAQ", type="tool")
 async def run_faq_check_workflow(state: PlanExecute):
     """
@@ -36,44 +38,49 @@ async def run_faq_check_workflow(state: PlanExecute):
     
     try:
         # Suche in der FAQ-Datenbank mit hohem Ähnlichkeitsschwellenwert
-        faqs = await search_faq_database(query, similarity_threshold=0.5, limit=1)
-        print(faqs)
+        faqs = await search_faq_database(query, similarity_threshold=0.65, limit=2)
+        
+        # Filtern und Prüfen auf relevante Inhalte
+        relevant_faqs = []
         if faqs:
-            # FAQ gefunden
-            faq = faqs[0]
-            similarity = faq.get('similarity', 0)
-            logger.info(f"FAQ gefunden mit Ähnlichkeit: {similarity}")
+            for faq in faqs:
+                similarity = faq.get('similarity', 0)
+                # Zusätzliche Relevanzprüfung
+                if similarity >= 0.65:
+                    relevant_faqs.append(faq)
+                    logger.info(f"Relevante FAQ gefunden mit Ähnlichkeit: {similarity}")
+        
+        if relevant_faqs:
+            # Relevante FAQ gefunden - nehme die mit der höchsten Ähnlichkeit
+            best_faq = max(relevant_faqs, key=lambda x: x.get('similarity', 0))
+            similarity = best_faq.get('similarity', 0)
+            logger.info(f"Beste FAQ gefunden mit Ähnlichkeit: {similarity}")
             
             # Formatiere die Antwort
-            response = f"📚 **Aus den FAQs:**\n\n**Frage:** {faq['question']}\n\n**Antwort:** {faq['answer']}"
+            response = f"📚 **Aus den FAQs:**\n\n**Frage:** {best_faq['question']}\n\n**Antwort:** {best_faq['answer']}"
             
-            # Aktualisiere den Zustand
+            # Aktualisiere den Zustand mit relevanten Informationen
             state["curr_context"] = response
             state["aggregated_context"] = response
             state["response"] = response
             
-            # Direkt die Antwort anzeigen, ohne den Workflow fortzusetzen
+            # Informiere den Benutzer
             await cl.Message(content=f"✅ Passende FAQ gefunden (Ähnlichkeit: {similarity:.2%})").send()
-            await cl.Message(content=response).send()
             
             try:
                 # Zeige FAQ-Speicheroption für die Frage an - fange Fehler ab, falls diese Funktion fehlschlägt
-                await show_save_to_faq_option(query, faq['answer'])
+                await show_save_to_faq_option(query, best_faq['answer'])
             except Exception as e:
                 logger.error(f"Fehler beim Anzeigen der FAQ-Speicheroption: {str(e)}")
                 # Fahre fort, auch wenn die Speicheroption nicht angezeigt werden kann
             
-            # Setze den Zustand auf "answer", um den Workflow zu beenden
-            state["tool"] = "answer"
-            state["curr_state"] = "answer"
-            
-            # Setze ein Flag, um direkt zu answer zu gehen
-            state["direct_to_answer"] = True
-            
+            # WICHTIG: Nicht direkt zu answer gehen, sondern den normalen Workflow-Pfad durchlaufen,
+            # der den Relevanzcheck einschließt
+            state["tool"] = "task_handler"
             return state
         
         # Keine passende FAQ gefunden
-        logger.info("Keine passende FAQ gefunden, fahre mit normaler Suche fort")
+        logger.info("Keine ausreichend relevante FAQ gefunden, fahre mit normaler Suche fort")
         await cl.Message(content="ℹ️ Keine passende FAQ gefunden, suche in der Dokumentation...").send()
         
         # Setze auf paralleles Retrieval als nächsten Schritt
@@ -92,6 +99,7 @@ async def run_faq_check_workflow(state: PlanExecute):
         
         return state
 
+@traceable(pass_config=False)
 @cl.step(name="Retrieve Chunks", type="tool")
 async def run_qualitative_chunks_retrieval_workflow(state: PlanExecute):
     """
@@ -156,6 +164,7 @@ async def run_qualitative_chunks_retrieval_workflow(state: PlanExecute):
 
     return state
 
+@traceable(pass_config=False)
 @cl.step(name="Retrieve Summaries", type="tool")
 async def run_qualitative_summaries_retrieval_workflow(state: PlanExecute):
     """
@@ -220,6 +229,7 @@ async def run_qualitative_summaries_retrieval_workflow(state: PlanExecute):
 
     return state
 
+@traceable(pass_config=False)
 @cl.step(name="Retrieve Quotes", type="tool")
 async def run_qualitative_quotes_retrieval_workflow(state: PlanExecute):
     """
@@ -284,6 +294,7 @@ async def run_qualitative_quotes_retrieval_workflow(state: PlanExecute):
 
     return state
 
+@traceable(pass_config=False)
 @cl.step(name="Parallel Retrieval", type="tool")
 async def run_parallel_retrieval_workflow(state: PlanExecute):
     """

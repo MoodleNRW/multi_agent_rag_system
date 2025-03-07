@@ -7,6 +7,7 @@ from .state import PlanExecute
 from models.models_wrapper import get_llm
 from langchain.prompts import PromptTemplate
 from pydantic import BaseModel, Field
+from langsmith import traceable
 
 class QuestionAnswerFromContext(BaseModel):
     """
@@ -15,6 +16,8 @@ class QuestionAnswerFromContext(BaseModel):
     reasoning: str = Field(description="Der Gedankengang zur Beantwortung der Frage.")
     answer_based_on_content: str = Field(description="Die endgültige Antwort auf die Frage, basierend auf dem Kontext.")
 
+
+@traceable(pass_config=False)
 @cl.step(name="Generate Answer", type="tool")
 async def run_qualtative_answer_workflow(state: PlanExecute):
     """
@@ -106,6 +109,7 @@ async def run_qualtative_answer_workflow(state: PlanExecute):
     
     return state
 
+@traceable(pass_config=False)
 @cl.step(name="Generate Final Answer", type="tool")
 async def run_qualtative_answer_workflow_for_final_answer(state: PlanExecute):
     """

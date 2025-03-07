@@ -1,6 +1,8 @@
 import chainlit as cl
+from langsmith import traceable
 from .state import PlanExecute
 
+@traceable(pass_config=False)
 @cl.step(name="Create Moodle Course", type="tool")
 async def run_moodle_tool_workflow(state: PlanExecute):
     """Creates a course in Moodle based on the provided information."""

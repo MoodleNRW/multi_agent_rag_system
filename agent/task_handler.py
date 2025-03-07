@@ -1,6 +1,7 @@
 # agent/task_handler.py
 
 import chainlit as cl
+from langsmith import traceable
 from typing import Dict, List, Optional
 from langchain.prompts import PromptTemplate
 import json
@@ -14,6 +15,7 @@ class TaskHandlerOutput(BaseModel):
     curr_context: str = Field(description="The context to be based on in order to answer the query or create a moodle course.")
     tool: str = Field(description="The tool to be used should be either retrieve_chunks, retrieve_summaries, retrieve_quotes, parallel_retrieval, answer or create_moodle_course.")
 
+@traceable(pass_config=False)
 @cl.step(name="Task Handler", type="process")
 async def run_task_handler_chain(state: PlanExecute):
     """ Run the task handler chain to decide which tool to use to execute the task.
