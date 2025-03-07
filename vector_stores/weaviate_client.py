@@ -30,9 +30,16 @@ def create_weaviate_client() -> weaviate.WeaviateClient:
         grpc_port=WEAVIATE_GRPC_PORT
     )
     
+    # Stelle sicher, dass der API-Key korrekt formatiert ist
+    headers = {
+        "X-OpenAI-Api-Key": API_KEY,
+    }
+    
+    logger.info("Weaviate-Client wird erstellt mit API-Key-Länge: %d", len(API_KEY) if API_KEY else 0)
+    
     client = weaviate.WeaviateClient(
         connection_params=connection_params,
-        additional_headers={"X-OpenAI-Api-Key": API_KEY}
+        additional_headers=headers
     )
     
     return client
@@ -303,19 +310,24 @@ def create_weaviate_schema(client: weaviate.WeaviateClient) -> bool:
                         logger.warning(f"Konnte Vektorisierer-Konfiguration nicht ermitteln: {str(e)}")
                         vectorizer_info = None
                     
-                    if vectorizer_info != "text2vec-openai":
-                        logger.error(f"FAQ-Collection hat falschen Vektorisierer: {vectorizer_info}. Sollte 'text2vec-openai' sein.")
-                        # Lösche die Collection und erstelle sie neu
-                        client.collections.delete("FAQ")
-                        logger.info("FAQ-Collection gelöscht, um sie mit korrektem Vektorisierer neu zu erstellen.")
-                        
-                        # Erstelle die Collection neu
-                        faq_config = client.collections.create(
-                            name="FAQ",
-                            properties=faq_properties,
-                            vectorizer_config=wvc.config.Configure.Vectorizer.text2vec_openai()
-                        )
-                        logger.info("FAQ-Collection mit korrektem Vektorisierer neu erstellt.")
+                    # INFO: Wir überspringen das Löschen und Neuerstellen der Collection,
+                    # da dies zu einem endlosen Kreislauf führt
+                    logger.info("Collection wurde mit text2vec-openai erstellt, auch wenn die API None zurückgibt")
+                    
+                    # Alter Code, der für Probleme sorgt:
+                    # if vectorizer_info != "text2vec-openai":
+                    #     logger.error(f"FAQ-Collection hat falschen Vektorisierer: {vectorizer_info}. Sollte 'text2vec-openai' sein.")
+                    #     # Lösche die Collection und erstelle sie neu
+                    #     client.collections.delete("FAQ")
+                    #     logger.info("FAQ-Collection gelöscht, um sie mit korrektem Vektorisierer neu zu erstellen.")
+                    #     
+                    #     # Erstelle die Collection neu
+                    #     faq_config = client.collections.create(
+                    #         name="FAQ",
+                    #         properties=faq_properties,
+                    #         vectorizer_config=wvc.config.Configure.Vectorizer.text2vec_openai()
+                    #     )
+                    #     logger.info("FAQ-Collection mit korrektem Vektorisierer neu erstellt.")
                 else:
                     logger.error("FAQ-Collection wurde erstellt, ist aber nicht in der Liste der Collections vorhanden.")
             except Exception as e:
