@@ -111,7 +111,7 @@ def create_retrievers_with_client(client) -> Tuple[Optional[object], Optional[ob
     try:
         # Überprüfe, ob Klassen existieren und Daten enthalten
         data_status = weaviate_client.check_weaviate_data(client)
-        logger.info(f"Verfügbare Daten in Weaviate: {data_status}")
+        #logger.info(f"Verfügbare Daten in Weaviate: {data_status}")
         
         if not data_status["classes_exist"]:
             logger.error("Weaviate-Klassen existieren nicht. Führen Sie zuerst den Crawler aus.")

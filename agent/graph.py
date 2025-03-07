@@ -112,8 +112,8 @@ async def create_agent_graph():
     # Add nodes
     agent_workflow.add_node("anonymize_question", anonymize_queries)
     agent_workflow.add_node("planner", plan_step)
-    agent_workflow.add_node("de_anonymize_plan", deanonymize_queries)
     agent_workflow.add_node("break_down_plan_to_retrieve_or_answer", break_down_plan_step)
+    agent_workflow.add_node("de_anonymize_plan", deanonymize_queries)
     agent_workflow.add_node("task_handler", run_task_handler_chain)
     agent_workflow.add_node("check_faq", run_faq_check_workflow)
     agent_workflow.add_node("retrieve_chunks", run_qualitative_chunks_retrieval_workflow)
@@ -125,6 +125,7 @@ async def create_agent_graph():
     agent_workflow.add_node("keep_only_relevant_content", keep_only_relevant_content)
     agent_workflow.add_node("replan", replan_step)
     agent_workflow.add_node("get_final_answer", run_qualtative_answer_workflow_for_final_answer)
+    agent_workflow.add_node("decide_faq_path", decide_faq_path)
 
     # Set entry point
     agent_workflow.set_entry_point("anonymize_question")
@@ -149,15 +150,6 @@ async def create_agent_graph():
             "chosen_tool_is_answer": "answer"
         }
     )
-
-    # Add edge from FAQ check back to task handler
-    agent_workflow.add_edge("check_faq", "task_handler")
-
-    # Neue einheitliche Kanten für das Retrieval
-    agent_workflow.add_edge("retrieve_chunks", "keep_only_relevant_content")
-    agent_workflow.add_edge("retrieve_summaries", "keep_only_relevant_content")
-    agent_workflow.add_edge("retrieve_quotes", "keep_only_relevant_content")
-    agent_workflow.add_edge("parallel_retrieval", "keep_only_relevant_content")
 
     # Konditionale Kanten für den neu hinzugefügten keep_only_relevant_content Node
     agent_workflow.add_conditional_edges(
@@ -200,6 +192,23 @@ async def create_agent_graph():
             "hallucination": "replan"
         }
     )
+
+    # Füge die Entscheidungsfunktion zum Workflow hinzu
+    agent_workflow.add_edge("check_faq", "decide_faq_path")
+    agent_workflow.add_conditional_edges(
+        "decide_faq_path",
+        lambda x: x["routing"],
+        {
+            "direct_to_answer": "answer",
+            "back_to_task_handler": "task_handler"
+        }
+    )
+    
+    # Neue einheitliche Kanten für das Retrieval
+    agent_workflow.add_edge("retrieve_chunks", "keep_only_relevant_content")
+    agent_workflow.add_edge("retrieve_summaries", "keep_only_relevant_content")
+    agent_workflow.add_edge("retrieve_quotes", "keep_only_relevant_content")
+    agent_workflow.add_edge("parallel_retrieval", "keep_only_relevant_content")
 
     return agent_workflow
 
@@ -367,6 +376,15 @@ async def retrieve_or_answer(state: PlanExecute):
         updates the tool to use .
     """
     state["curr_state"] = "decide_tool"
+    
+    # Wenn das Flag direct_to_answer gesetzt ist, gehe direkt zur Antwort
+    if state.get("direct_to_answer", False):
+        return "chosen_tool_is_answer"
+    
+    # Wenn der aktuelle Zustand bereits "answer" ist, gehe direkt zur Antwort
+    if state["curr_state"] == "answer":
+        return "chosen_tool_is_answer"
+    
     if state["tool"] == "check_faq":
         return "chosen_tool_is_check_faq"
     elif state["tool"] == "retrieve_chunks":
@@ -383,3 +401,18 @@ async def retrieve_or_answer(state: PlanExecute):
         return "chosen_tool_is_answer"
     else:
         raise ValueError("Invalid tool was outputed. Must be either 'check_faq', 'retrieve_chunks', 'retrieve_summaries', 'retrieve_quotes', 'parallel_retrieval', 'create_moodle_course' or 'answer'")  
+
+# Füge eine Funktion hinzu, um zu entscheiden, welchen Pfad wir von check_faq aus nehmen
+@cl.step(name="Decide FAQ Path", type="process")
+async def decide_faq_path(state: PlanExecute):
+    """Entscheidet, ob wir direkt zur Antwort gehen oder zum Task Handler zurückkehren.
+    Args:
+        state: Der aktuelle Zustand der Plan-Ausführung.
+    Returns:
+        Der aktualisierte Zustand mit einem Routing-Attribut.
+    """
+    # Füge ein Routing-Attribut zum Zustand hinzu
+    state["routing"] = "direct_to_answer" if state.get("direct_to_answer", False) else "back_to_task_handler"
+    
+    # Gib den vollständigen Zustand zurück
+    return state  

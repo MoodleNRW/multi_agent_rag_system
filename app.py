@@ -202,26 +202,38 @@ async def process_message(message_content: str):
         
         async for current_output in astream_generator:
             step_output = current_output
-            last_key = next(iter(step_output))
-            current_state = step_output[last_key]
-            
-            # Aktualisiere die UI
-            await update_ui(current_state)
-            
-            # Evaluiere den aktuellen Schritt
-            if "curr_state" in current_state:
-                # Extrahiere den aktuellen Schrittnamen
-                curr_state = current_state["curr_state"]
-                logger.info(f"Aktueller Schritt: {curr_state}")
+            if step_output:
+                last_key = next(iter(step_output))
+                current_state = step_output[last_key]
                 
-                # Evaluiere den Schritt
-                await evaluate_step(current_state, curr_state)
+                # Überprüfe, ob current_state nicht None ist
+                if current_state is not None:
+                    # Aktualisiere die UI
+                    await update_ui(current_state)
+                    
+                    # Evaluiere den aktuellen Schritt
+                    if "curr_state" in current_state:
+                        # Extrahiere den aktuellen Schrittnamen
+                        curr_state = current_state["curr_state"]
+                        logger.info(f"Aktueller Schritt: {curr_state}")
+                        
+                        # Evaluiere den Schritt
+                        logger.info(f"Evaluiere Schritt: {curr_state}")
+                        await evaluate_step(current_state, curr_state)
+                else:
+                    logger.warning("current_state ist None, überspringe UI-Update")
+            else:
+                logger.warning("step_output ist None, überspringe Iteration")
             
     except GraphRecursionError as e:
+        logger.warning("Der Workflow hat das Rekursionslimit erreicht.")
         if step_output:
             last_key = next(iter(step_output))
-            res = await support_summary_step(step_output[last_key])
-            logger.warning("Der Workflow hat das Rekursionslimit erreicht.")
+            current_state = step_output[last_key]
+            if current_state:
+                res = await support_summary_step(current_state)
+            else:
+                logger.error("current_state ist None in GraphRecursionError-Handler")
             await cl.Message(content="Der Workflow hat das Rekursionslimit erreicht.").send()
             await cl.Message(content=res).send()
         else:

@@ -7,6 +7,7 @@ import logging
 import datetime
 from typing import Dict, Any, Optional
 from vector_stores.weaviate_client import create_weaviate_client, ensure_weaviate_connection
+import asyncio
 
 # Konfiguriere Logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -100,7 +101,7 @@ async def save_faq_to_database(question: str, answer: str) -> bool:
         
         # Prüfe, ob die FAQ-Collection existiert
         collection_names = client.collections.list_all(simple=True)
-        logger.info(f"Verfügbare Collections: {collection_names}")
+        #logger.info(f"Verfügbare Collections: {collection_names}")
         
         if "FAQ" not in collection_names:
             logger.error("FAQ-Collection existiert nicht.")
@@ -133,6 +134,11 @@ async def save_faq_to_database(question: str, answer: str) -> bool:
             result = faq_collection.data.insert(faq_object)
             logger.info(f"FAQ erfolgreich gespeichert. Ergebnis: {result}")
             
+            # Warte explizit auf die Indizierung (mit Timeout)
+            success = await wait_for_object_indexing(client, "FAQ", 10)  # 10 Sekunden Timeout
+            if not success:
+                logger.warning("Timeout beim Warten auf die Indizierung des FAQ-Objekts.")
+            
             # Überprüfe, ob das Objekt tatsächlich gespeichert wurde
             count_result = faq_collection.aggregate.over_all()
             obj_count = 0
@@ -140,7 +146,24 @@ async def save_faq_to_database(question: str, answer: str) -> bool:
                 obj_count = count_result.total_count
             logger.info(f"Anzahl der FAQ-Objekte nach dem Speichern: {obj_count}")
             
-            return True
+            # Wenn keine Objekte gefunden wurden, versuche es mit explizitem Commit
+            if obj_count == 0:
+                logger.warning("Keine FAQ-Objekte nach dem Speichern gefunden. Versuche expliziten Commit...")
+                try:
+                    # Versuche einen expliziten Datenbankcommit (falls verfügbar)
+                    if hasattr(client, 'batch'):
+                        client.batch.commit()
+                        logger.info("Expliziter Batch-Commit durchgeführt.")
+                        
+                        # Prüfe erneut nach dem Commit
+                        count_result = faq_collection.aggregate.over_all()
+                        if hasattr(count_result, 'total_count'):
+                            obj_count = count_result.total_count
+                        logger.info(f"Anzahl der FAQ-Objekte nach explizitem Commit: {obj_count}")
+                except Exception as commit_error:
+                    logger.error(f"Fehler beim expliziten Commit: {str(commit_error)}")
+            
+            return obj_count > 0  # Erfolgreich, wenn mindestens ein Objekt vorhanden ist
         except Exception as e:
             logger.error(f"Fehler beim Einfügen des FAQ-Objekts: {str(e)}")
             return False
@@ -157,6 +180,45 @@ async def save_faq_to_database(question: str, answer: str) -> bool:
             except Exception as close_error:
                 logger.error(f"Fehler beim Schließen des Clients: {str(close_error)}")
                 # Hier keine Exception werfen, um den Hauptfehler nicht zu überdecken
+
+async def wait_for_object_indexing(client, collection_name: str, timeout_seconds: int = 10) -> bool:
+    """
+    Wartet, bis ein Objekt indiziert ist.
+    
+    Args:
+        client: Der Weaviate-Client
+        collection_name: Der Name der Collection
+        timeout_seconds: Timeout in Sekunden
+        
+    Returns:
+        bool: True, wenn die Indizierung erfolgreich war, sonst False
+    """
+    start_time = datetime.datetime.now()
+    logger.info(f"Warte auf Indizierung von Objekten in Collection {collection_name}...")
+    
+    while (datetime.datetime.now() - start_time).total_seconds() < timeout_seconds:
+        try:
+            # Hole die Collection
+            collection = client.collections.get(collection_name)
+            
+            # Prüfe, ob Objekte vorhanden sind
+            count_result = collection.aggregate.over_all()
+            obj_count = 0
+            if hasattr(count_result, 'total_count'):
+                obj_count = count_result.total_count
+            
+            if obj_count > 0:
+                logger.info(f"Indizierung abgeschlossen. {obj_count} Objekte gefunden.")
+                return True
+            
+            # Kurze Pause vor dem nächsten Versuch
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            logger.warning(f"Fehler beim Prüfen der Indizierung: {str(e)}")
+            await asyncio.sleep(0.5)
+    
+    logger.warning(f"Timeout beim Warten auf Indizierung nach {timeout_seconds} Sekunden.")
+    return False
 
 async def add_faq_management_button():
     """
@@ -244,7 +306,7 @@ async def get_faqs_from_database(limit: int = 10) -> list:
         
         # Prüfe, ob die FAQ-Collection existiert
         collection_names = client.collections.list_all(simple=True)
-        logger.info(f"Verfügbare Collections: {collection_names}")
+        #logger.info(f"Verfügbare Collections: {collection_names}")
         
         if "FAQ" not in collection_names:
             logger.error("FAQ-Collection existiert nicht.")
@@ -410,8 +472,30 @@ async def debug_weaviate_database() -> str:
                 collection = client.collections.get(collection_name)
                 
                 # Prüfe Vektorisierer-Konfiguration
-                vectorizer_info = collection.config.vectorizer
-                debug_info += f"Vektorisierer: **{vectorizer_info}**\n\n"
+                vectorizer_info = None
+                
+                # Versuche verschiedene Möglichkeiten, die Vektorisierer-Konfiguration zu erhalten
+                try:
+                    # Option 1: Über Konfigurationsattribute
+                    if hasattr(collection.config, 'vectorizer_config'):
+                        vectorizer_info = collection.config.vectorizer_config.vectorizer
+                    # Option 2: Über vectorizers
+                    elif hasattr(collection.config, 'vectorizers'):
+                        vectorizers = collection.config.vectorizers
+                        if vectorizers and len(vectorizers) > 0:
+                            vectorizer_info = vectorizers[0]
+                    # Option 3: Direktes Attribut (ältere Versionen)
+                    elif hasattr(collection.config, 'vectorizer'):
+                        vectorizer_info = collection.config.vectorizer
+                        
+                    logger.info(f"FAQ-Collection Vektorisierer: {vectorizer_info}")
+                
+                    if not vectorizer_info or vectorizer_info != "text2vec-openai":
+                        logger.warning(f"FAQ-Collection hat falschen Vektorisierer: {vectorizer_info}. Sollte 'text2vec-openai' sein.")
+                        faq_needs_recreation = True
+                except Exception as e:
+                    logger.error(f"Fehler beim Überprüfen des Vektorisierers: {str(e)}")
+                    faq_needs_recreation = True
                 
                 # Prüfe Eigenschaften
                 properties = collection.properties.get()
@@ -565,11 +649,63 @@ async def search_faq_database(query: str, similarity_threshold: float = 0.7, lim
         
         # Prüfe, ob die FAQ-Collection existiert
         collection_names = client.collections.list_all(simple=True)
-        logger.info(f"Verfügbare Collections: {collection_names}")
+        #logger.info(f"Verfügbare Collections: {collection_names}")
         
+        # Falls die FAQ-Collection nicht existiert oder neu erstellt werden muss
+        faq_needs_recreation = False
         if "FAQ" not in collection_names:
             logger.error("FAQ-Collection existiert nicht.")
-            return []
+            faq_needs_recreation = True
+        else:
+            # Prüfe die Vektorisierer-Konfiguration
+            try:
+                faq_collection = client.collections.get("FAQ")
+                vectorizer_info = None
+                
+                # Versuche verschiedene Möglichkeiten, die Vektorisierer-Konfiguration zu erhalten
+                try:
+                    # Option 1: Über Konfigurationsattribute
+                    if hasattr(faq_collection.config, 'vectorizer_config'):
+                        vectorizer_info = faq_collection.config.vectorizer_config.vectorizer
+                    # Option 2: Über vectorizers
+                    elif hasattr(faq_collection.config, 'vectorizers'):
+                        vectorizers = faq_collection.config.vectorizers
+                        if vectorizers and len(vectorizers) > 0:
+                            vectorizer_info = vectorizers[0]
+                    # Option 3: Direktes Attribut (ältere Versionen)
+                    elif hasattr(faq_collection.config, 'vectorizer'):
+                        vectorizer_info = faq_collection.config.vectorizer
+                        
+                    logger.info(f"FAQ-Collection Vektorisierer: {vectorizer_info}")
+                
+                    if not vectorizer_info or vectorizer_info != "text2vec-openai":
+                        logger.warning(f"FAQ-Collection hat falschen Vektorisierer: {vectorizer_info}. Sollte 'text2vec-openai' sein.")
+                        faq_needs_recreation = True
+                except Exception as e:
+                    logger.error(f"Fehler beim Überprüfen des Vektorisierers: {str(e)}")
+                    faq_needs_recreation = True
+                
+                if faq_needs_recreation:
+                    logger.info("Versuche, die FAQ-Collection neu zu erstellen...")
+                    try:
+                        # Falls die Collection existiert, löschen
+                        if "FAQ" in collection_names:
+                            logger.info("Lösche bestehende FAQ-Collection...")
+                            client.collections.delete("FAQ")
+                        
+                        # Neu erstellen mit korrektem Vektorisierer
+                        from vector_stores.weaviate_client import create_weaviate_schema
+                        if create_weaviate_schema(client):
+                            logger.info("FAQ-Collection erfolgreich neu erstellt.")
+                        else:
+                            logger.error("Konnte FAQ-Collection nicht neu erstellen.")
+                            return []
+                    except Exception as e:
+                        logger.error(f"Fehler beim Neuerstellen der FAQ-Collection: {str(e)}")
+                        return []
+            except Exception as e:
+                logger.error(f"Fehler beim Überprüfen der Vektorisierer-Konfiguration: {str(e)}")
+                faq_needs_recreation = True
         
         # Hole die FAQ-Collection
         faq_collection = client.collections.get("FAQ")
@@ -590,51 +726,36 @@ async def search_faq_database(query: str, similarity_threshold: float = 0.7, lim
             logger.error(f"Fehler beim Zählen der FAQ-Objekte: {str(e)}")
             # Fahre trotzdem fort, da dies kein kritischer Fehler ist
         
-        # Versuche zuerst die semantische Suche
+        # Führe semantische Suche durch
         try:
             logger.info(f"Führe semantische Suche nach '{query[:50]}...' durch")
             
-            # Überprüfe, ob die Collection einen Vektorisierer hat
-            try:
-                # Prüfe die Konfiguration der Collection
-                collection_config = faq_collection.config
-                vectorizer_info = None
-                
-                # Prüfe verschiedene mögliche Attribute für den Vektorisierer
-                if hasattr(collection_config, 'vectorizer'):
-                    vectorizer_info = collection_config.vectorizer
-                elif hasattr(collection_config, 'vectorizer_config') and hasattr(collection_config.vectorizer_config, 'vectorizer'):
-                    vectorizer_info = collection_config.vectorizer_config.vectorizer
-                
-                logger.info(f"FAQ-Collection Vektorisierer: {vectorizer_info}")
-                
-                if not vectorizer_info or vectorizer_info == "none":
-                    logger.warning(f"FAQ-Collection hat keinen oder falschen Vektorisierer: {vectorizer_info}. Sollte 'text2vec-openai' sein.")
-                    # Fallback auf textbasierte Suche
-                    return await search_faq_database_text_based(client, query, limit)
-            except Exception as e:
-                logger.error(f"Fehler beim Überprüfen des Vektorisierers: {str(e)}")
-                # Fallback auf textbasierte Suche
-                return await search_faq_database_text_based(client, query, limit)
-            
             # Führe semantische Suche durch
-            try:
-                # Versuche es mit near_text
-                results = faq_collection.query.near_text(
-                    query=query,
-                    distance=1.0 - similarity_threshold,  # Konvertiere similarity zu distance
-                    limit=limit
-                )
-                
-                # Extrahiere die Ergebnisse
-                faqs = []
-                if hasattr(results, 'objects') and results.objects:
-                    for obj in results.objects:
-                        properties = obj.properties
-                        # Berechne Ähnlichkeit aus Distanz, falls vorhanden
-                        distance = obj.metadata.distance if hasattr(obj, 'metadata') and hasattr(obj.metadata, 'distance') else 0
-                        similarity = 1.0 - distance if distance is not None else 0.5
-                        
+            results = faq_collection.query.near_text(
+                query=query,
+                limit=limit
+            )
+            
+            # Extrahiere die Ergebnisse
+            faqs = []
+            if hasattr(results, 'objects') and results.objects:
+                for obj in results.objects:
+                    properties = obj.properties
+                    # Berechne Ähnlichkeit aus Distanz, falls vorhanden
+                    similarity = 0
+                    
+                    if hasattr(obj, 'certainty'):
+                        similarity = obj.certainty
+                    elif hasattr(obj, 'metadata') and hasattr(obj.metadata, 'certainty'):
+                        similarity = obj.metadata.certainty
+                    elif hasattr(obj, 'metadata') and hasattr(obj.metadata, 'distance'):
+                        # Konvertiere Distanz zu Ähnlichkeit
+                        distance = obj.metadata.distance
+                        if distance is not None:
+                            similarity = 1.0 - distance
+                    
+                    # Nur Ergebnisse mit ausreichender Ähnlichkeit verwenden
+                    if similarity >= similarity_threshold:
                         faq = {
                             "question": properties.get("question", ""),
                             "answer": properties.get("answer", ""),
@@ -642,42 +763,10 @@ async def search_faq_database(query: str, similarity_threshold: float = 0.7, lim
                             "similarity": similarity
                         }
                         faqs.append(faq)
-                
-                logger.info(f"Semantische Suche ergab {len(faqs)} Ergebnisse.")
-                return faqs
-            except Exception as e:
-                logger.error(f"Fehler bei der near_text Suche: {str(e)}")
-                # Versuche es mit hybrid-Suche als Fallback
-                try:
-                    results = faq_collection.query.hybrid(
-                        query=query,
-                        alpha=0.5,  # Gleichgewicht zwischen Vektor- und Keyword-Suche
-                        limit=limit
-                    )
-                    
-                    # Extrahiere die Ergebnisse
-                    faqs = []
-                    if hasattr(results, 'objects') and results.objects:
-                        for obj in results.objects:
-                            properties = obj.properties
-                            # Berechne Ähnlichkeit aus Score, falls vorhanden
-                            score = obj.metadata.score if hasattr(obj, 'metadata') and hasattr(obj.metadata, 'score') else 0
-                            
-                            faq = {
-                                "question": properties.get("question", ""),
-                                "answer": properties.get("answer", ""),
-                                "date": properties.get("date", ""),
-                                "similarity": score if score is not None else 0.5
-                            }
-                            faqs.append(faq)
-                    
-                    logger.info(f"Hybrid-Suche ergab {len(faqs)} Ergebnisse.")
-                    return faqs
-                except Exception as e2:
-                    logger.error(f"Fehler bei der Hybrid-Suche: {str(e2)}")
-                    # Fallback auf textbasierte Suche
-                    return await search_faq_database_text_based(client, query, limit)
+                        logger.info(f"FAQ gefunden mit Ähnlichkeit: {similarity}")
             
+            logger.info(f"Semantische Suche ergab {len(faqs)} Ergebnisse.")
+            return faqs
         except Exception as e:
             logger.error(f"Fehler bei der semantischen Suche: {str(e)}")
             # Fallback auf textbasierte Suche

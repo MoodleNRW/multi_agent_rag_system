@@ -155,7 +155,7 @@ def create_weaviate_schema(client: weaviate.WeaviateClient) -> bool:
         logger.info("Überprüfe bestehende Collections...")
         existing_collections = client.collections.list_all(simple=True)
         collection_names = existing_collections
-        logger.info(f"Gefundene Collections: {existing_collections}")
+        #logger.info(f"Gefundene Collections: {existing_collections}")
     except Exception as e:
         logger.error(f"Fehler beim Auflisten der Collections: {e}")
         # Bei Fehler versuchen wir, jede Collection direkt abzufragen
@@ -168,7 +168,7 @@ def create_weaviate_schema(client: weaviate.WeaviateClient) -> bool:
             except:
                 logger.info(f"Collection {name} existiert noch nicht.")
     
-    logger.info(f"Gefundene Collections: {collection_names}")
+    #logger.info(f"Gefundene Collections: {collection_names}")
     
     # Schema für Content
     if "Content" not in collection_names:
@@ -262,7 +262,7 @@ def create_weaviate_schema(client: weaviate.WeaviateClient) -> bool:
             wvc.config.Property(name="question", data_type=wvc.config.DataType.TEXT),
             wvc.config.Property(name="answer", data_type=wvc.config.DataType.TEXT),
             wvc.config.Property(name="date", data_type=wvc.config.DataType.DATE),
-            wvc.config.Property(name="approved", data_type=wvc.config.DataType.BOOLEAN)
+            wvc.config.Property(name="approved", data_type=wvc.config.DataType.BOOL)
         ]
         
         try:
@@ -282,8 +282,26 @@ def create_weaviate_schema(client: weaviate.WeaviateClient) -> bool:
                     
                     # Überprüfe die Vektorisierer-Konfiguration
                     faq_collection = client.collections.get("FAQ")
-                    vectorizer_info = faq_collection.config.vectorizer
-                    logger.info(f"FAQ-Collection Vektorisierer: {vectorizer_info}")
+                    vectorizer_info = None
+                    
+                    # Versuche verschiedene Möglichkeiten, die Vektorisierer-Konfiguration zu erhalten
+                    try:
+                        # Option 1: Über Konfigurationsattribute
+                        if hasattr(faq_collection.config, 'vectorizer_config'):
+                            vectorizer_info = faq_collection.config.vectorizer_config.vectorizer
+                        # Option 2: Über vectorizers
+                        elif hasattr(faq_collection.config, 'vectorizers'):
+                            vectorizers = faq_collection.config.vectorizers
+                            if vectorizers and len(vectorizers) > 0:
+                                vectorizer_info = vectorizers[0]
+                        # Option 3: Direktes Attribut (ältere Versionen)
+                        elif hasattr(faq_collection.config, 'vectorizer'):
+                            vectorizer_info = faq_collection.config.vectorizer
+                            
+                        logger.info(f"FAQ-Collection Vektorisierer: {vectorizer_info}")
+                    except Exception as e:
+                        logger.warning(f"Konnte Vektorisierer-Konfiguration nicht ermitteln: {str(e)}")
+                        vectorizer_info = None
                     
                     if vectorizer_info != "text2vec-openai":
                         logger.error(f"FAQ-Collection hat falschen Vektorisierer: {vectorizer_info}. Sollte 'text2vec-openai' sein.")

@@ -93,6 +93,11 @@ async def update_ui(step_output):
     Args:
         step_output: Der aktuelle Ausgabezustand des Workflows
     """
+    # Füge eine Null-Überprüfung hinzu
+    if step_output is None:
+        logger.warning("UI Update: step_output ist None, überspringe Update")
+        return
+        
     current_state = step_output.get("curr_state", "")
     logger.debug(f"UI Update: {current_state}")
     

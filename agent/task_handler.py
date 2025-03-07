@@ -24,53 +24,78 @@ async def run_task_handler_chain(state: PlanExecute):
     """
     state["curr_state"] = "task_handler"
 
-    task_handler_prompt_template = """Du bist ein Task-Handler, der eine Aufgabe {curr_task} erhält und entscheiden muss, welches Tool zur Ausführung der Aufgabe verwendet werden soll.
-    
-    Du hast folgende Tools zur Verfügung:
-    
-    Tool A (check_faq): Ein Tool, das zuerst in der FAQ-Datenbank nach einer passenden Antwort sucht.
-    - Verwende Tool A IMMER als ersten Schritt, bevor andere Retrieval-Tools verwendet werden.
-    - Gut für: Häufig gestellte Fragen, die bereits beantwortet wurden.
-    
-    Tool B (retrieve_chunks): Ein Tool, das relevante Informationen aus einem Vektorspeicher von Textabschnitten basierend auf einer Abfrage abruft.
-    - Verwende Tool B für detaillierte, spezifische Fragen, die präzise Informationen erfordern.
-    - Gut für: technische Details, schrittweise Anleitungen, spezifische Fehlermeldungen.
-    
-    Tool C (retrieve_summaries): Ein Tool, das relevante Informationen aus einem Vektorspeicher von Kapitelzusammenfassungen basierend auf einer Abfrage abruft.
-    - Verwende Tool C für allgemeine, überblicksartige Fragen, die einen breiteren Kontext erfordern.
-    - Gut für: Konzeptüberblicke, Einführungen in Themen, Verständnis größerer Zusammenhänge.
-    
-    Tool D (retrieve_quotes): Ein Tool, das relevante Informationen aus einem Vektorspeicher von Zitaten basierend auf einer Abfrage abruft.
-    - Verwende Tool D für Fragen nach Definitionen, Zitaten oder offiziellen Aussagen.
-    - Gut für: Begriffsdefinitionen, offizielle Richtlinien, exakte Formulierungen.
-    
-    Tool E (parallel_retrieval): Ein Tool, das alle drei Retrieval-Methoden (Chunks, Summaries, Quotes) parallel ausführt und die Ergebnisse kombiniert.
-    - Verwende Tool E für komplexe Fragen, die von verschiedenen Informationsquellen profitieren könnten.
-    - Gut für: Erste Anfragen zu einem Thema, mehrteilige Fragen, Fragen mit unklarer Informationsquelle.
-    
-    Tool F (answer): Ein Tool, das eine Frage aus einem gegebenen Kontext beantwortet.
-    - Verwende Tool F NUR, wenn du denkst, dass die aktuelle Aufgabe mit dem aggregierten Kontext {aggregated_context} beantwortet werden kann.
-    
-    Tool G (create_moodle_course): Ein Tool, das einen Moodle-Kurs erstellt. Du musst den Kontext für den Moodle-Kurs bereitstellen.
-    - Verwende Tool G, wenn du denkst, dass die aktuelle Aufgabe einen Moodle-Kurs basierend auf dem Kontext erstellen sollte.
-    
-    WICHTIG: 
-    1. Verwende IMMER zuerst Tool A (check_faq), um zu prüfen, ob die Frage bereits in den FAQs beantwortet wurde.
-    2. Wenn Tool A keine passende FAQ findet oder ein Fehler auftritt, verwende Tool E (parallel_retrieval) für den ersten Informationsabruf.
-    3. Prüfe anhand von {past_steps} und {last_tool}, ob bereits Informationen abgerufen wurden.
-    
-    Du erhältst auch das zuletzt verwendete Tool {last_tool}.
-    Wenn {last_tool} "retrieve_chunks", "retrieve_summaries" oder "retrieve_quotes" war und keine relevanten Informationen gefunden wurden, verwende Tool E (parallel_retrieval).
-    
-    Du hast auch die bisherigen Schritte {past_steps}, die du nutzen kannst, um Entscheidungen zu treffen und den Kontext der Aufgabe zu verstehen.
-    Du hast auch die ursprüngliche Frage des Benutzers {question}, die du nutzen kannst, um Entscheidungen zu treffen und den Kontext der Aufgabe zu verstehen.
-    
-    Wenn du dich für Tool A, B, C, D oder E entscheidest, gib die Abfrage aus, die für das Tool verwendet werden soll, und gib auch das relevante Tool aus.
-    Wenn du dich für Tool F entscheidest, gib die Frage aus, die für das Tool verwendet werden soll, den Kontext und auch, dass das zu verwendende Tool Tool F ist.
-    Wenn du dich für Tool G entscheidest, gib den Kontext aus und auch, dass das zu verwendende Tool Tool G ist.
-    
-    Gib deine Entscheidung im JSON-Format aus.
-    """
+    task_handler_prompt_template = """You are a Task Handler AI responsible for selecting the most appropriate tool to execute the current task: '{curr_task}'.
+
+### 🧰 AVAILABLE TOOLS:
+
+#### Information Retrieval Tools:
+✅ **Tool A (check_faq)**: Searches the FAQ database for matching answers.
+   - ALWAYS use this tool FIRST before any other retrieval tools
+   - Best for: Frequently asked questions with pre-existing answers
+
+📄 **Tool B (retrieve_chunks)**: Retrieves relevant information from text chunks in the vector store.
+   - Best for: Detailed questions requiring precise information, technical details, step-by-step guides, specific error messages
+
+📚 **Tool C (retrieve_summaries)**: Retrieves information from chapter summaries in the vector store.
+   - Best for: Overview questions, conceptual understanding, introductions to topics, broader context
+
+💬 **Tool D (retrieve_quotes)**: Retrieves information from quotes in the vector store.
+   - Best for: Definition requests, official guidelines, exact wording, policy information
+
+🔄 **Tool E (parallel_retrieval)**: Runs all three retrieval methods (chunks, summaries, quotes) in parallel and combines results.
+   - Best for: Complex questions benefiting from multiple information sources, initial topic inquiries, multi-part questions
+
+#### Action Tools:
+✏️ **Tool F (answer)**: Directly answers a question using the aggregated context.
+   - ONLY use when you have sufficient information in the aggregated context: {aggregated_context}
+
+🏫 **Tool G (create_moodle_course)**: Creates a Moodle course based on provided context.
+   - Use when the task explicitly requires creating a Moodle course
+
+### 📋 DECISION PROTOCOL:
+
+1. ALWAYS start with Tool A (check_faq) to check if the question has already been answered
+2. If Tool A finds no matching FAQ or fails, use Tool E (parallel_retrieval) for initial information gathering
+3. Check {past_steps} and {last_tool} to determine what information has already been retrieved
+4. If {last_tool} was "retrieve_chunks", "retrieve_summaries", or "retrieve_quotes" and found no relevant information, use Tool E
+
+### 📊 CONTEXT INFORMATION:
+
+- Last tool used: {last_tool}
+- Previous steps taken: {past_steps}
+- Original user question: {question}
+
+### 📤 OUTPUT FORMAT:
+
+For Tools A, B, C, D, or E:
+```json
+{{
+  "query": "specific query to use with the tool",
+  "curr_context": "",
+  "tool": "tool_name" 
+}}
+```
+
+For Tool F:
+```json
+{{
+  "query": "question to be answered",
+  "curr_context": "context to use for answering",
+  "tool": "answer"
+}}
+```
+
+For Tool G:
+```json
+{{
+  "query": "",
+  "curr_context": "context for Moodle course creation",
+  "tool": "create_moodle_course"
+}}
+```
+
+Always ensure your output strictly follows the TaskHandlerOutput schema with "query", "curr_context", and "tool" fields.
+"""
 
     task_handler_prompt = PromptTemplate(
         template=task_handler_prompt_template,
@@ -90,7 +115,7 @@ async def run_task_handler_chain(state: PlanExecute):
         return
 
     curr_task = state["plan"].pop(0)  # Get the next task and remove it from the plan
-    
+
     result = task_handler_chain.invoke({
         "curr_task": curr_task,
         "aggregated_context": state["aggregated_context"],
@@ -98,6 +123,7 @@ async def run_task_handler_chain(state: PlanExecute):
         "past_steps": state["past_steps"],
         "question": state["question"]
     })
+
 
     state["query_to_retrieve_or_answer"] = result.query
 

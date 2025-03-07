@@ -9,7 +9,7 @@ import os
 import logging
 import asyncio
 from vector_stores.retriever import ensure_global_client
-from ui.faq_ui import search_faq_database
+from ui.faq_ui import search_faq_database, show_save_to_faq_option
 
 dotenv.load_dotenv()
 API_KEY = os.getenv('OPENAI_API_KEY')
@@ -51,9 +51,25 @@ async def run_faq_check_workflow(state: PlanExecute):
             state["curr_context"] = response
             state["aggregated_context"] = response
             state["response"] = response
-            state["tool"] = "answer"  # Wechsle direkt zur Antwort
             
+            # Direkt die Antwort anzeigen, ohne den Workflow fortzusetzen
             await cl.Message(content=f"✅ Passende FAQ gefunden (Ähnlichkeit: {similarity:.2%})").send()
+            await cl.Message(content=response).send()
+            
+            try:
+                # Zeige FAQ-Speicheroption für die Frage an - fange Fehler ab, falls diese Funktion fehlschlägt
+                await show_save_to_faq_option(query, faq['answer'])
+            except Exception as e:
+                logger.error(f"Fehler beim Anzeigen der FAQ-Speicheroption: {str(e)}")
+                # Fahre fort, auch wenn die Speicheroption nicht angezeigt werden kann
+            
+            # Setze den Zustand auf "answer", um den Workflow zu beenden
+            state["tool"] = "answer"
+            state["curr_state"] = "answer"
+            
+            # Setze ein Flag, um direkt zu answer zu gehen
+            state["direct_to_answer"] = True
+            
             return state
         
         # Keine passende FAQ gefunden
@@ -70,6 +86,10 @@ async def run_faq_check_workflow(state: PlanExecute):
         
         # Bei Fehler, fahre mit parallelem Retrieval fort
         state["tool"] = "parallel_retrieval"
+        
+        # Setze den Fehlerkontext
+        state["error"] = f"Fehler bei der FAQ-Suche: {str(e)}"
+        
         return state
 
 @cl.step(name="Retrieve Chunks", type="tool")

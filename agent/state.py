@@ -1,6 +1,6 @@
-from typing import List, TypedDict
+from typing import List, TypedDict, Optional
 
-class PlanExecute(TypedDict):
+class PlanExecute(TypedDict, total=False):
     curr_state: str
     question: str
     anonymized_question: str
@@ -13,3 +13,7 @@ class PlanExecute(TypedDict):
     aggregated_context: str
     tool: str
     response: str
+    routing: str  # Routing-Information für bedingte Kanten im Workflow
+    direct_to_answer: bool  # Flag für direkte Weiterleitung zur Antwort
+    relevance_status: str  # Status der Relevanz des abgerufenen Inhalts
+    error: str  # Fehlerinformationen
