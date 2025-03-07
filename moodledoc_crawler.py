@@ -10,7 +10,7 @@ import html2text
 from datetime import datetime
 from queue import Queue, Empty
 from collections import deque
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlunparse
 from pathlib import Path
 from bs4 import BeautifulSoup
 import requests
@@ -203,6 +203,35 @@ def extract_quotes_from_page(url, soup):
     print(f"[DEBUG] Insgesamt extrahierte Quotes auf {url}: {len(quotes)}")
     return quotes
 
+def normalize_url(url):
+        parsed = urlparse(url)
+        
+        # 1) Fragment entfernen (Anchor)
+        parsed = parsed._replace(fragment="")
+        
+        # 2) http vs. https ignorieren – wir setzen alles auf https:
+        #    (Du kannst es auch leer lassen, s. weiter unten.)
+        scheme = parsed.scheme.lower()
+        if scheme in ["http", "https"]:
+            scheme = "https"
+        else:
+            # Andere Protokolle (ftp, mailto etc.) ggf. erhalten oder filtern
+            # Hier vereinfachter Fall: einfach beibehalten
+            pass
+
+        # 3) Trailing Slash entfernen, falls es nicht die komplette Root-URL ist
+        path = parsed.path
+        if path.endswith("/") and path != "/":
+            path = path[:-1]
+        
+        # Optional: Netloc in Kleinschreibung
+        netloc = parsed.netloc.lower()
+        
+        # 4) Zusammenbauen
+        #    Wenn du das Scheme komplett entfernen willst, setz `scheme = ""`
+        new_url = urlunparse((scheme, netloc, path, parsed.params, parsed.query, ""))
+        return new_url
+
 def scrape_text(url):
     try:
         response = requests.get(url, timeout=10)
@@ -234,13 +263,21 @@ def get_subpages(url):
 
     soup = BeautifulSoup(response.text, 'html.parser')
     subpages = []
+    
+    # Get the domain of the original URL
+    original_domain = urlparse(url).netloc
 
     for link in soup.find_all('a'):
         href = link.get('href')
         if href:
+            # Skip mailto links
+            if href.startswith('mailto:'):
+                continue
+                
             absolute_url = urljoin(url, href)
-            if urlparse(absolute_url).netloc == urlparse(url).netloc:
-                subpages.append(absolute_url)
+            # Only include URLs from the same domain
+            if urlparse(absolute_url).netloc == original_domain:
+                subpages.append(normalize_url(absolute_url))
 
     return list(set(subpages))  # Remove duplicates
 
@@ -313,10 +350,12 @@ def scrape_website(url, visited=None, max_workers=10, depth=10, chunking_strateg
     with lock:
         total_pages = 1  # Starte mit der ersten URL
         completed_pages = 0  # Setze completed_pages zurück
+
     
     # Funktion zum sicheren Hinzufügen einer URL zur Queue
     def add_url_to_queue(new_url):
         global total_pages  # Deklariere total_pages als global
+        
         with visited_lock:
             if new_url not in visited and len(visited) < depth:
                 visited.add(new_url)
@@ -343,7 +382,6 @@ def scrape_website(url, visited=None, max_workers=10, depth=10, chunking_strateg
                 try:
                     # Crawle die Seite
                     subpages, text, metadata, quotes = scrape_and_collect(current_url)
-                    
                     # Füge das Ergebnis zur Liste hinzu
                     with results_lock:
                         result = {
@@ -399,6 +437,12 @@ def scrape_website(url, visited=None, max_workers=10, depth=10, chunking_strateg
     
     # Verarbeite die gesammelten Daten
     processed_data = {}
+    
+    # Debug: Alle URLs ausgeben
+    print("\n[DEBUG] Alle gesammelten URLs:")
+    for i, url in enumerate(results):
+        print(f"  {i+1}. {url['url']}")
+    print(f"Insgesamt {len(results)} URLs gefunden.\n")
     
     # Verarbeite die Ergebnisse
     for result in results:
@@ -541,6 +585,19 @@ def save_to_weaviate(collected_data):
         None
     """
     global weaviate_instance
+    
+    # Debug: Alle URLs ausgeben
+    print("\n[DEBUG] Alle gesammelten URLs:")
+    if isinstance(collected_data, dict):
+        urls = [url for url in collected_data.keys() if url != "quotes"]
+        for i, url in enumerate(urls):
+            print(f"  {i+1}. {url}")
+        print(f"Insgesamt {len(urls)} URLs gefunden.\n")
+    elif isinstance(collected_data, list):
+        urls = [item.get('url', 'No URL') for item in collected_data if isinstance(item, dict)]
+        for i, url in enumerate(urls):
+            print(f"  {i+1}. {url}")
+        print(f"Insgesamt {len(urls)} URLs gefunden.\n")
     
     # Stelle sicher, dass eine Verbindung zu Weaviate besteht
     if not ensure_weaviate_connection():
@@ -771,17 +828,29 @@ def save_to_weaviate(collected_data):
 
 def create_summaries_for_collected_data(collected_data):
     """
-    Erstellt Zusammenfassungen für die gesammelten Daten und speichert sie in Weaviate.
+    Erstellt Zusammenfassungen für die gesammelten Daten.
     
     Args:
         collected_data: Die gesammelten Daten, für die Zusammenfassungen erstellt werden sollen.
+                       Kann eine Liste oder ein Dictionary sein.
     
     Returns:
         None
     """
     global weaviate_instance
     
-    print("[Weaviate] Erstelle Zusammenfassungen...")
+    # Debug: Alle URLs ausgeben
+    print("\n[DEBUG] Alle URLs für Zusammenfassungen:")
+    if isinstance(collected_data, dict):
+        urls = [url for url in collected_data.keys() if url != "quotes"]
+        for i, url in enumerate(urls):
+            print(f"  {i+1}. {url}")
+        print(f"Insgesamt {len(urls)} URLs für Zusammenfassungen gefunden.\n")
+    elif isinstance(collected_data, list):
+        urls = [item.get('url', 'No URL') for item in collected_data if isinstance(item, dict)]
+        for i, url in enumerate(urls):
+            print(f"  {i+1}. {url}")
+        print(f"Insgesamt {len(urls)} URLs für Zusammenfassungen gefunden.\n")
     
     # Stelle sicher, dass eine Verbindung zu Weaviate besteht
     ensure_weaviate_connection()

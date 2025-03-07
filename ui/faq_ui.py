@@ -220,40 +220,6 @@ async def wait_for_object_indexing(client, collection_name: str, timeout_seconds
     logger.warning(f"Timeout beim Warten auf Indizierung nach {timeout_seconds} Sekunden.")
     return False
 
-async def add_faq_management_button():
-    """
-    Fügt einen FAQ-Management-Button zur UI hinzu.
-    """
-    faq_button = cl.Action(
-        name="show_faq_management",
-        payload={"action": "show"},
-        label="📚 FAQ-Verwaltung"
-    )
-    
-    msg = cl.Message(content="")
-    msg.actions = [faq_button]
-    await msg.send()
-
-@cl.action_callback("show_faq_management")
-async def on_show_faq_management(action):
-    """
-    Callback für die Aktion 'FAQ-Verwaltung anzeigen'.
-    """
-    await action.remove()
-    
-    # Zeige FAQ-Management-Optionen an
-    msg = cl.Message(content="📚 **FAQ-Verwaltung**\n\nVerwalten Sie die FAQ-Datenbank.")
-    
-    actions = [
-        cl.Action(name="list_faqs", payload={}, label="📋 FAQs anzeigen"),
-        cl.Action(name="search_faqs", payload={}, label="🔍 FAQs durchsuchen"),
-        cl.Action(name="debug_faq_db", payload={}, label="🛠️ FAQ-Datenbank prüfen"),
-        cl.Action(name="create_test_faq", payload={}, label="🧪 Test-FAQ erstellen")
-    ]
-    
-    msg.actions = actions
-    await msg.send()
-
 @cl.action_callback("list_faqs")
 async def on_list_faqs(action):
     """
@@ -415,26 +381,6 @@ async def get_faqs_from_database(limit: int = 10) -> list:
                 logger.error(f"Fehler beim Schließen des Clients: {str(e)}")
                 pass
 
-@cl.action_callback("debug_faq_db")
-async def on_debug_faq_db(action):
-    """
-    Callback für die Aktion 'FAQ-Datenbank prüfen'.
-    """
-    await action.remove()
-    
-    # Zeige Ladeanzeige
-    loading_msg = cl.Message(content="🔍 Prüfe die Weaviate-Datenbank... Dies kann einen Moment dauern.")
-    await loading_msg.send()
-    
-    # Prüfe die Weaviate-Datenbank direkt
-    result = await debug_weaviate_database()
-    
-    # Entferne die Ladeanzeige
-    await loading_msg.remove()
-    
-    # Zeige das Ergebnis an
-    await cl.Message(content=f"## 🛠️ Weaviate-Datenbankprüfung\n\n{result}").send()
-
 async def debug_weaviate_database() -> str:
     """
     Debuggt die Weaviate-Datenbank und gibt Informationen zurück.
@@ -589,35 +535,6 @@ async def debug_weaviate_database() -> str:
             except Exception as close_error:
                 logger.error(f"Fehler beim Schließen des Debug-Clients: {str(close_error)}")
                 # Hier keine Exception werfen, um den Hauptfehler nicht zu überdecken
-
-@cl.action_callback("create_test_faq")
-async def on_create_test_faq(action):
-    """
-    Callback für die Aktion 'Test-FAQ erstellen'.
-    """
-    await action.remove()
-    
-    # Erstelle eine Test-FAQ
-    success = await create_test_faq()
-    
-    if success:
-        await cl.Message(content="✅ Test-FAQ wurde erfolgreich erstellt. Versuchen Sie jetzt, die FAQs anzuzeigen.").send()
-    else:
-        await cl.Message(content="⚠️ Fehler beim Erstellen des Test-FAQs.").send()
-
-async def create_test_faq() -> bool:
-    """
-    Erstellt eine Test-FAQ in der Datenbank.
-    
-    Returns:
-        bool: True bei erfolgreichem Erstellen, False sonst
-    """
-    # Erstelle eine Test-FAQ
-    question = "Ist dies ein Test?"
-    answer = "Ja, dies ist eine Test-FAQ, die automatisch erstellt wurde, um die FAQ-Funktionalität zu testen."
-    
-    # Speichere die FAQ in der Datenbank
-    return await save_faq_to_database(question, answer)
 
 async def search_faq_database(query: str, similarity_threshold: float = 0.7, limit: int = 3) -> list:
     """

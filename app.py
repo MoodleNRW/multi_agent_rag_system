@@ -21,8 +21,8 @@ from utils.graph_visualization import display_graph
 
 # Import ausgelagerte Module
 from ui.ui_handlers import update_ui
-from ui.evaluation_ui import add_evaluation_button, store_conversation_item
-from ui.faq_ui import show_save_to_faq_option, add_faq_management_button
+from ui.evaluation_ui import store_conversation_item
+from ui.faq_ui import show_save_to_faq_option
 from vector_stores.db_manager import reconnect_weaviate_if_needed
 from evaluation.realtime_evaluator import start_evaluation, evaluate_step, complete_evaluation
 
@@ -116,17 +116,12 @@ async def start():
     # Füge Admin-Button für Datenbankmanagement hinzu
     actions = [
         cl.Action(name="db_management", payload={"action": "show"}, label="📊 Datenbank-Management"),
-        cl.Action(name="fix_faq_collection", payload={"action": "fix"}, label="🔧 FAQ-Collection reparieren")
+        cl.Action(name="list_faqs", payload={"action": "show"}, label="📚 FAQs"),
+        cl.Action(name="show_evaluation", payload={"action": "show"}, label="📊 RAGAS-Evaluierung")
     ]
     admin_msg = cl.Message(content="")
     admin_msg.actions = actions
     await admin_msg.send()
-    
-    # Füge Evaluierungsbutton hinzu
-    await add_evaluation_button()
-    
-    # Füge FAQ-Management-Button hinzu
-    await add_faq_management_button()
     
     # Initialisiere Retriever und überprüfe Daten
     await initialize_retrievers_and_check_data(client)
