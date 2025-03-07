@@ -177,20 +177,20 @@ async def run_qualitative_quotes_retrieval_workflow(state: PlanExecute):
 
     try:
         # Verwende die korrekte API für die Abfrage (v4)
-        content_chunk_collection = weaviate_client.collections.get("Content_chunk")
-        query_result = content_chunk_collection.query.near_text(
+        quote_collection = weaviate_client.collections.get("Quote")
+        query_result = quote_collection.query.near_text(
             query=query,
             limit=4,
             return_metadata=wvc.query.MetadataQuery(distance=True),
-            return_properties=["url", "content_chunk"]
+            return_properties=["url", "content", "source", "title"]
         )
         
         docs = query_result.objects
         
         # Filter out empty content and only include quotes or definitions
-        retrieved_info = " ".join(f"{doc.properties['url']}: {doc.properties['content_chunk']}" 
+        retrieved_info = " ".join(f"{doc.properties['url']} ({doc.properties.get('source', 'unbekannt')}): {doc.properties['content']}" 
                                  for doc in docs 
-                                 if doc.properties.get('content_chunk') and doc.properties['content_chunk'].strip())
+                                 if doc.properties.get('content') and doc.properties['content'].strip())
         
         state["curr_context"] += f"Retrieved quote information: {retrieved_info}"
         state["aggregated_context"] += state["curr_context"]

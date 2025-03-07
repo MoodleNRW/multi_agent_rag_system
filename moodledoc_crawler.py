@@ -120,6 +120,89 @@ def extract_metadata_from_page(url, soup):
     
     return metadata
 
+def extract_quotes_from_page(url, soup):
+    """
+    Extrahiert Zitate und wichtige Definitionen aus einer Webseite
+    
+    Args:
+        url: URL der Webseite
+        soup: BeautifulSoup-Objekt der geparsten Seite
+        
+    Returns:
+        Liste von Dictionaries mit Zitaten und Definitionen
+    """
+    quotes = []
+    
+    # Extrahiere Blockquotes
+    blockquotes = soup.find_all('blockquote')
+    print(f"[DEBUG] Gefundene Blockquotes auf {url}: {len(blockquotes)}")
+    for i, quote in enumerate(blockquotes):
+        quote_text = quote.get_text().strip()
+        if quote_text:
+            quotes.append({
+                "content": quote_text,
+                "source": "blockquote",
+                "url": url,
+                "title": soup.title.string if soup.title else ""
+            })
+    
+    # Extrahiere Definitionen (oft in <dl>, <dt>, <dd> Tags)
+    definition_lists = soup.find_all('dl')
+    print(f"[DEBUG] Gefundene Definition Lists auf {url}: {len(definition_lists)}")
+    for dl in definition_lists:
+        terms = dl.find_all('dt')
+        descriptions = dl.find_all('dd')
+        
+        for i, term in enumerate(terms):
+            if i < len(descriptions):
+                term_text = term.get_text().strip()
+                desc_text = descriptions[i].get_text().strip()
+                if term_text and desc_text:
+                    quotes.append({
+                        "content": f"{term_text}: {desc_text}",
+                        "source": "definition",
+                        "url": url,
+                        "title": soup.title.string if soup.title else ""
+                    })
+    
+    # Extrahiere hervorgehobenen Text (oft in <em>, <strong>, <b>, <i> Tags innerhalb von <p>)
+    paragraphs = soup.find_all('p')
+    emphasized_count = 0
+    for p in paragraphs:
+        # Suche nach hervorgehobenem Text
+        emphasized = p.find_all(['em', 'strong', 'b', 'i'])
+        for em in emphasized:
+            # Prüfe, ob der hervorgehobene Text lang genug ist, um relevant zu sein
+            em_text = em.get_text().strip()
+            if len(em_text) > 15:  # Mindestlänge für relevante Hervorhebungen
+                emphasized_count += 1
+                # Hole den umgebenden Absatz für Kontext
+                context = p.get_text().strip()
+                quotes.append({
+                    "content": f"Hervorgehoben: {em_text} (Kontext: {context})",
+                    "source": "emphasis",
+                    "url": url,
+                    "title": soup.title.string if soup.title else ""
+                })
+    print(f"[DEBUG] Gefundene hervorgehobene Texte auf {url}: {emphasized_count}")
+    
+    # Extrahiere Text aus Infoboxen oder Hinweisen (oft in <div class="note">, <div class="info">, etc.)
+    info_boxes = soup.select('div.note, div.info, div.warning, div.tip, div.important')
+    print(f"[DEBUG] Gefundene Infoboxen auf {url}: {len(info_boxes)}")
+    for box in info_boxes:
+        box_text = box.get_text().strip()
+        if box_text:
+            box_class = box.get('class', [''])[0]
+            quotes.append({
+                "content": f"{box_class.capitalize()}: {box_text}",
+                "source": f"infobox_{box_class}",
+                "url": url,
+                "title": soup.title.string if soup.title else ""
+            })
+    
+    print(f"[DEBUG] Insgesamt extrahierte Quotes auf {url}: {len(quotes)}")
+    return quotes
+
 def scrape_text(url):
     try:
         response = requests.get(url, timeout=10)
@@ -183,11 +266,13 @@ def scrape_and_collect(url):
     text, soup = scrape_text(url)
     subpages = get_subpages(url)
     metadata = {}
+    quotes = []
     
     if soup is not None:
         metadata = extract_metadata_from_page(url, soup)
+        quotes = extract_quotes_from_page(url, soup)
     
-    return subpages, text, metadata
+    return subpages, text, metadata, quotes
 
 def scrape_website(url, visited=None, max_workers=10, depth=10, chunking_strategy="semantic"):
     global total_pages, completed_pages
@@ -196,73 +281,97 @@ def scrape_website(url, visited=None, max_workers=10, depth=10, chunking_strateg
 
     pages_to_scrape = [url]
     results = []
+    all_quotes = []
     
     while pages_to_scrape:
+        current_batch = []
+        for _ in range(min(max_workers, len(pages_to_scrape))):
+            if not pages_to_scrape:
+                break
+            current_url = pages_to_scrape.pop(0)
+            if current_url not in visited:
+                visited.add(current_url)
+                current_batch.append(current_url)
+                total_pages += 1  # Increment total pages counter
+        
+        if not current_batch:
+            break
+        
+        # Verarbeite die aktuelle Batch parallel
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {}
-            for page in pages_to_scrape:
-                if page not in visited:
-                    visited.add(page)
-                    futures[executor.submit(scrape_and_collect, page)] = page
-
-            # Update total pages to reflect the new pages that need to be scraped
-            total_pages += len(futures)
-
-            pages_to_scrape = []
+            futures = {executor.submit(scrape_and_collect, url): url for url in current_batch}
+            
             for future in as_completed(futures):
-                if depth==0:
-                    break
-                subpages, text, metadata = future.result()
-                depth = depth - 1;
-                results.append((futures[future], text, metadata))
-                completed_pages += 1  # Mark this page as completed
-                update_progress()
-                for subpage in subpages:
-                    if subpage not in visited:
-                        pages_to_scrape.append(subpage)
-            else:
-                continue
+                try:
+                    if depth==0:
+                        break
+                    subpages, text, metadata, quotes = future.result()
+                    depth = depth - 1;
+                    
+                    # Füge die Metadaten zum Text hinzu
+                    result = {
+                        "url": futures[future],
+                        "content": text,
+                        **metadata
+                    }
+                    
+                    # Füge das Ergebnis zur Liste hinzu
+                    results.append(result)
+                    
+                    # Füge die Quotes zur Liste hinzu
+                    all_quotes.extend(quotes)
+                    
+                    # Aktualisiere den Fortschritt
+                    with lock:
+                        completed_pages += 1
+                    update_progress()
+                    
+                    # Füge neue Subpages zur Queue hinzu
+                    for subpage in subpages:
+                        if subpage not in visited:
+                            pages_to_scrape.append(subpage)
+                except Exception as e:
+                    print(f"Fehler beim Verarbeiten von {futures[future]}: {str(e)}")
+                    traceback.print_exc()
+        
+        if depth <= 0:
             break
     
-    # Hier werden die Daten für die Verarbeitung in Chunks aufgeteilt
-    all_data = []
-    chunk_count = 0
+    # Verarbeite die gesammelten Daten
+    processed_data = {}
     
-    print(f"[Verarbeitung] Verarbeite {len(results)} gesammelte Seiten...")
-    
-    # Verarbeite jede gesammelte Seite
-    for url, text, metadata in results:
-        if not text.strip():  # Überspringe leere Texte
-            continue
-            
-        # Teile den Text gemäß der gewählten Strategie
-        chunks = split_text_with_strategy(text, strategy=chunking_strategy)
+    # Verarbeite die Ergebnisse
+    for result in results:
+        url = result["url"]
+        content = result["content"]
         
-        # Bereite die Daten für die Speicherung vor
+        # Teile den Text in Chunks auf
+        chunks = split_text_with_strategy(content, chunking_strategy)
+        
+        # Konvertiere Chunks in das richtige Format
+        formatted_chunks = []
         for chunk in chunks:
-            # Kombiniere Metadaten mit den grundlegenden Eigenschaften
-            properties = {
-                "url": url,
-                "content": chunk,
-                "date": datetime.now().isoformat(),
-            }
-            
-            # Füge Metadaten hinzu, wenn vorhanden
-            if metadata:
-                properties.update({
-                    "title": metadata.get("title", ""),
-                    "chapter": metadata.get("chapter", ""),
-                    "section": metadata.get("section", ""),
-                    "last_updated": metadata.get("last_updated", ""),
-                    "importance_score": metadata.get("importance_score", 0.5)
-                })
-                
-            all_data.append(properties)
-            chunk_count += 1
+            if isinstance(chunk, str):
+                formatted_chunks.append({"content": chunk, "type": "text"})
+            else:
+                formatted_chunks.append(chunk)
+        
+        # Speichere die Daten im Dictionary
+        processed_data[url] = {
+            "url": url,
+            "content": content,
+            "chunks": formatted_chunks,
+            "title": result.get("title", ""),
+            "chapter": result.get("chapter", ""),
+            "section": result.get("section", ""),
+            "last_updated": result.get("last_updated", ""),
+            "importance_score": result.get("importance_score", 0.5)
+        }
     
-    print(f"[Verarbeitung] {chunk_count} Chunks aus {len(results)} Seiten erstellt.")
+    # Speichere die Quotes separat
+    processed_data["quotes"] = all_quotes
     
-    return all_data
+    return processed_data
 
 def generate_output_filename(url):
     parsed_url = urlparse(url)
@@ -381,6 +490,14 @@ def save_to_weaviate(collected_data):
         print("[FEHLER] Fehler beim Erstellen der Schemas. Daten können nicht gespeichert werden.")
         return
     
+    # Extrahiere Quotes, falls vorhanden
+    quotes = []
+    if isinstance(collected_data, dict) and "quotes" in collected_data:
+        quotes = collected_data.pop("quotes")
+        print(f"[DEBUG] Extrahierte {len(quotes)} Quotes aus den gesammelten Daten.")
+        for i, quote in enumerate(quotes):
+            print(f"[DEBUG] Quote {i+1}: {quote.get('content', 'Kein Inhalt')[:50]}...")
+    
     # Wenn collected_data eine Liste ist, konvertiere sie in ein Dictionary mit URL als Schlüssel
     if isinstance(collected_data, list):
         # Sammle alle Daten pro URL
@@ -409,6 +526,8 @@ def save_to_weaviate(collected_data):
     # Initialisiere Zähler für erfolgreiche und fehlgeschlagene Speicheroperationen
     successful_chunks = 0
     failed_chunks = 0
+    successful_quotes = 0
+    failed_quotes = 0
     all_failed_objects = []
     
     # Berechne die Gesamtzahl der Chunks für den Fortschrittsbalken
@@ -468,10 +587,16 @@ def save_to_weaviate(collected_data):
         
         for i, chunk in enumerate(data['chunks']):
             try:
+                # Stelle sicher, dass chunk ein Dictionary ist
+                if isinstance(chunk, dict):
+                    chunk_content = chunk.get('content', '')
+                else:
+                    chunk_content = str(chunk)
+                
                 # Erstelle die Eigenschaften für den Chunk
                 chunk_properties = {
                     "url": url,
-                    "content_chunk": chunk['content'],
+                    "content_chunk": chunk_content,
                     "chunk_nr": i,
                     "date": current_date,
                     "title": data.get('title', ''),
@@ -479,7 +604,7 @@ def save_to_weaviate(collected_data):
                     "section": data.get('section', ''),
                     "last_updated": data.get('last_updated', ''),
                     "importance_score": data.get('importance_score', 0.5),
-                    "chunk_type": chunk.get('type', 'text')
+                    "chunk_type": chunk.get('type', 'text') if isinstance(chunk, dict) else 'text'
                 }
                 
                 # Direktes Speichern ohne Batch
@@ -500,10 +625,83 @@ def save_to_weaviate(collected_data):
             progress = (successful_chunks + failed_chunks) / total_chunks * 100 if total_chunks > 0 else 100
             print(f"[Weaviate-Speicher] {progress:.2f}% ({successful_chunks + failed_chunks}/{total_chunks} Chunks gespeichert)")
     
+    # Speichere die Quotes in der Quote-Collection
+    if quotes:
+        print(f"[Weaviate] Beginne mit dem Speichern von {len(quotes)} Quotes in Weaviate...")
+        
+        # Stelle sicher, dass die Quote-Collection existiert
+        try:
+            # Versuche, die Quote-Collection zu holen
+            quote_collection = weaviate_instance.collections.get("Quote")
+            print(f"[DEBUG] Quote-Collection erfolgreich abgerufen.")
+        except Exception as e:
+            print(f"[WARNUNG] Konnte Collection 'Quote' nicht abrufen: {str(e)}")
+            print(f"[INFO] Versuche, die Quote-Collection zu erstellen...")
+            
+            try:
+                # Erstelle die Quote-Collection
+                quote_properties = [
+                    wvc.config.Property(name="url", data_type=wvc.config.DataType.TEXT),
+                    wvc.config.Property(name="content", data_type=wvc.config.DataType.TEXT),
+                    wvc.config.Property(name="source", data_type=wvc.config.DataType.TEXT),
+                    wvc.config.Property(name="date", data_type=wvc.config.DataType.DATE),
+                    wvc.config.Property(name="title", data_type=wvc.config.DataType.TEXT)
+                ]
+                
+                quote_collection = weaviate_instance.collections.create(
+                    name="Quote",
+                    properties=quote_properties,
+                    vectorizer_config=wvc.config.Configure.Vectorizer.text2vec_openai()
+                )
+                print(f"[INFO] Quote-Collection erfolgreich erstellt.")
+            except Exception as create_error:
+                print(f"[FEHLER] Konnte Collection 'Quote' nicht erstellen: {str(create_error)}")
+                return
+        
+        # Speichere jedes Quote einzeln
+        for i, quote in enumerate(quotes):
+            try:
+                print(f"[DEBUG] Speichere Quote {i+1}: {quote.get('content', 'Kein Inhalt')[:50]}...")
+                
+                # Erstelle die Eigenschaften für das Quote
+                quote_properties = {
+                    "url": quote.get("url", ""),
+                    "content": quote.get("content", ""),
+                    "source": quote.get("source", ""),
+                    "date": current_date,
+                    "title": quote.get("title", "")
+                }
+                
+                # Direktes Speichern ohne Batch
+                try:
+                    # Stelle sicher, dass die Quote-Collection noch existiert
+                    quote_collection = weaviate_instance.collections.get("Quote")
+                    
+                    # Füge das Quote ein
+                    quote_collection.data.insert(quote_properties)
+                    successful_quotes += 1
+                    print(f"Quote {i+1} erfolgreich gespeichert.")
+                except Exception as insert_error:
+                    print(f"[FEHLER] Speichern von Quote {i+1} fehlgeschlagen: {str(insert_error)}")
+                    failed_quotes += 1
+            except Exception as e:
+                failed_quotes += 1
+                print(f"[FEHLER] Speichern von Quote {i+1} fehlgeschlagen: {str(e)}")
+        
+        print(f"[Weaviate] {successful_quotes} von {len(quotes)} Quotes wurden erfolgreich in Weaviate gespeichert.")
+        if failed_quotes > 0:
+            print(f"[Weaviate] {failed_quotes} Quotes konnten nicht gespeichert werden.")
+    else:
+        print("[WARNUNG] Keine Quotes zum Speichern gefunden.")
+    
     # Zeige eine Zusammenfassung der Ergebnisse an
     print(f"[Weaviate] {successful_chunks} von {total_chunks} Chunks wurden erfolgreich in Weaviate gespeichert.")
     if failed_chunks > 0:
         print(f"[Weaviate] {failed_chunks} Chunks konnten nicht gespeichert werden.")
+    if failed_quotes > 0:
+        print(f"[Weaviate] {failed_quotes} Quotes konnten nicht gespeichert werden.")
+    if len(all_failed_objects) > 0:
+        print(f"[Weaviate] {len(all_failed_objects)} Objekte konnten nicht gespeichert werden.")
         for failure in all_failed_objects[:5]:  # Zeige die ersten 5 Fehler an
             print(f"  - URL: {failure['url']}, Chunk: {failure['chunk_nr']}, Fehler: {failure['error']}")
         if len(all_failed_objects) > 5:
@@ -680,92 +878,46 @@ def create_summary_for_content(content):
 
 def main():
     """
-    Hauptfunktion, die den Crawler-Prozess startet.
-    
-    Die Funktion verarbeitet Befehlszeilenargumente:
-    - sys.argv[1]: Website-URL zum Crawlen
-    - sys.argv[2] (optional): Maximale Anzahl von Seiten (Tiefe)
-    - sys.argv[3] (optional): Chunking-Strategie ("recursive", "semantic", "hierarchical")
-    
-    Wenn keine Befehlszeilenargumente übergeben werden, fragt sie den Benutzer nach Eingaben.
+    Hauptfunktion zum Ausführen des Crawlers.
     """
-    global weaviate_instance
-    
-    if len(sys.argv) > 1:
-        website_url = sys.argv[1]
-        
-        # Wenn ein zweites Argument vorhanden ist, verwende es als Tiefenwert
-        depth = int(sys.argv[2]) if len(sys.argv) > 2 else 50
-        
-        # Wenn ein drittes Argument vorhanden ist, verwende es als Chunking-Strategie
-        chunking_strategy = sys.argv[3] if len(sys.argv) > 3 else "semantic"
-        
-        # Überprüfe, ob die angegebene Strategie gültig ist
-        if chunking_strategy not in ["recursive", "semantic", "hierarchical"]:
-            print(f"Ungültige Chunking-Strategie: {chunking_strategy}. Verwende 'semantic' als Standard.")
-            chunking_strategy = "semantic"
-    else:
-        website_url = input("Geben Sie eine Webseite ein, um das Scraping zu beginnen: ")
-        depth = int(input("Geben Sie eine maximale Anzahl an Seiten an die ausgelesen werden soll: "))
-        
-        # Frage nach der Chunking-Strategie
-        strategy_input = input("Wählen Sie eine Chunking-Strategie (recursive/semantic/hierarchical) [semantic]: ").lower()
-        chunking_strategy = strategy_input if strategy_input in ["recursive", "semantic", "hierarchical"] else "semantic"
-
-    print(f"[Start] Starte Crawling von {website_url} mit Strategie: {chunking_strategy}")
-    print(f"[Konfiguration] Max. Seiten: {depth}, Chunking-Strategie: {chunking_strategy}")
-    
     try:
-        # Prüfe Weaviate-Verbindung und erstelle Schemas
-        if not ensure_weaviate_connection():
-            print("[FEHLER] Keine Verbindung zu Weaviate möglich. Bitte stellen Sie sicher, dass Weaviate läuft.")
-            print("[STATUS] CRAWLING_ERROR")
-            sys.exit(1)
+        # Prüfe, ob Befehlszeilenargumente übergeben wurden
+        if len(sys.argv) > 1:
+            url = sys.argv[1]
+            depth = int(sys.argv[2]) if len(sys.argv) > 2 else 5
+            strategy = sys.argv[3] if len(sys.argv) > 3 else "recursive"
             
-        if not create_weaviate_schema():
-            print("[FEHLER] Fehler beim Erstellen der Schemas. Bitte stellen Sie sicher, dass Weaviate läuft.")
-            print("[STATUS] CRAWLING_ERROR")
-            sys.exit(1)
+            # Entferne das '@' am Anfang der URL, falls vorhanden
+            if url.startswith('@'):
+                url = url[1:]
+            
+            print(f"Starte Crawling von {url} mit Tiefe {depth} und Strategie {strategy}...")
+        else:
+            # Interaktiver Modus
+            url = input("Geben Sie eine Webseite ein, um das Scraping zu beginnen: ")
+            depth_input = input("Geben Sie die maximale Tiefe ein (Standard: 5): ")
+            depth = int(depth_input) if depth_input.strip() else 5
+            
+            strategy_input = input("Geben Sie die Chunking-Strategie ein (recursive, semantic, paragraph, Standard: recursive): ")
+            strategy = strategy_input.strip() if strategy_input.strip() else "recursive"
         
-        visited = set()
-        data = scrape_website(website_url, visited=visited, max_workers=10, depth=depth, chunking_strategy=chunking_strategy)
+        # Starte den Crawler
+        print(f"Starte Crawling von {url} mit Tiefe {depth} und Strategie {strategy}...")
+        data = scrape_website(url, depth=depth, chunking_strategy=strategy)
         
-        # Dateinamen generieren
-        output_filename = generate_output_filename(website_url)
-        
-        # Speichern der gesammelten Daten in die Weaviate-Datenbank
-        print(f"[Daten] Es wurden insgesamt {len(data)} Dokumente gesammelt und verarbeitet.")
-        
-        # Speichern der chunks in Weaviate
-        print(f"[Weaviate] Speichere Daten in die Weaviate-Datenbank...")
+        # Speichere die Daten in Weaviate
+        print("Speichere Daten in Weaviate...")
         save_to_weaviate(data)
         
-        # Erstelle Zusammenfassungen für die gesammelten Daten
+        # Erstelle Zusammenfassungen
+        print("Erstelle Zusammenfassungen...")
         create_summaries_for_collected_data(data)
         
-        print(f"[Abschluss] Crawling und Datenverarbeitung vollständig abgeschlossen.")
-        print(f"[Zusammenfassung] {len(data)} Dokumente wurden erfolgreich in die Weaviate-Datenbank gespeichert.")
-        print(f"[STATUS] CRAWLING_COMPLETE")
-        
-        # Schließe die Weaviate-Verbindung
-        try:
-            weaviate_instance.close()
-            print("[Weaviate] Verbindung geschlossen.")
-        except Exception as close_error:
-            print(f"[Weaviate] Fehler beim Schließen der Verbindung: {close_error}")
-            
+        print("[STATUS] CRAWLING_COMPLETE")
     except Exception as e:
         print(f"[FEHLER] Ein Fehler ist aufgetreten: {str(e)}")
         traceback.print_exc()
-        print(f"[STATUS] CRAWLING_ERROR")
-        
-        # Versuche, die Weaviate-Verbindung zu schließen
-        try:
-            weaviate_instance.close()
-        except:
-            pass
-        
-        sys.exit(1)
+        print("[STATUS] CRAWLING_ERROR")
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

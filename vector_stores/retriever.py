@@ -143,18 +143,36 @@ def create_retrievers_with_client(client) -> Tuple[Optional[object], Optional[ob
             text_key="content_summary"
         )
         
-        # Für Zitate verwenden wir auch Content_chunk, filtern aber nach bestimmten Eigenschaften
-        # oder passen die Abfrageparameter an
-        quotes_vector_store = KeepAliveWeaviateVectorStore(
-            client=client, 
-            index_name="Content_chunk", 
-            embedding=embeddings,
-            text_key="content_chunk"
-        )
+        # Für Zitate verwenden wir die Quote-Collection
+        quotes_vector_store = None
+        try:
+            # Prüfe, ob die Quote-Collection existiert und Daten enthält
+            if "Quote" in data_status["details"] and data_status["details"]["Quote"] > 0:
+                quotes_vector_store = KeepAliveWeaviateVectorStore(
+                    client=client, 
+                    index_name="Quote", 
+                    embedding=embeddings,
+                    text_key="content"
+                )
+                logger.info(f"Quote-Vector-Store mit {data_status['details']['Quote']} Objekten erstellt.")
+            else:
+                # Fallback: Verwende Content_chunk, wenn keine Quote-Collection verfügbar ist
+                logger.warning("Keine Quote-Collection gefunden oder leer. Verwende Content_chunk als Fallback.")
+                quotes_vector_store = chunks_vector_store
+        except Exception as e:
+            logger.error(f"Fehler beim Erstellen des Quote-Vector-Store: {str(e)}")
+            # Fallback: Verwende Content_chunk
+            quotes_vector_store = chunks_vector_store
 
         # Retriever mit angepassten Suchparametern erstellen
         chunks_retriever = chunks_vector_store.as_retriever(search_kwargs={"k": 4})     
         summaries_retriever = summaries_vector_store.as_retriever(search_kwargs={"k": 4})
+        
+        # Stelle sicher, dass quotes_vector_store nicht None ist
+        if quotes_vector_store is None:
+            quotes_vector_store = chunks_vector_store
+            logger.warning("Verwende Content_chunk als Fallback für Quote-Retriever.")
+            
         quotes_retriever = quotes_vector_store.as_retriever(search_kwargs={"k": 10})
         
         logger.info("Retriever erfolgreich erstellt.")

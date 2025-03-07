@@ -84,7 +84,7 @@ def check_weaviate_data(client: weaviate.WeaviateClient) -> Dict[str, Any]:
         collections = client.collections.list_all(simple=True)
         collection_names = collections
         
-        for class_name in ["Content_chunk", "Content_summary"]:
+        for class_name in ["Content_chunk", "Content_summary", "Quote"]:
             if class_name in collection_names:
                 try:
                     # Hole die Sammlung und zähle die Objekte
@@ -105,7 +105,8 @@ def check_weaviate_data(client: weaviate.WeaviateClient) -> Dict[str, Any]:
                     
                     result["details"][class_name] = obj_count
                     
-                    if obj_count < 5:  # Mindestens 5 Dokumente sollten vorhanden sein
+                    # Nur für Content_chunk und Content_summary prüfen wir auf Mindestanzahl
+                    if class_name in ["Content_chunk", "Content_summary"] and obj_count < 5:  # Mindestens 5 Dokumente sollten vorhanden sein
                         result["has_sufficient_data"] = False
                         logger.warning(f"Weaviate-Klasse '{class_name}' enthält nur {obj_count} Objekte. Möglicherweise unzureichende Daten.")
                 except Exception as e:
@@ -113,8 +114,11 @@ def check_weaviate_data(client: weaviate.WeaviateClient) -> Dict[str, Any]:
                     result["has_sufficient_data"] = False
                     result["details"][class_name] = 0
             else:
-                result["classes_exist"] = False
-                result["has_sufficient_data"] = False
+                # Nur für Content_chunk und Content_summary setzen wir classes_exist auf False
+                if class_name in ["Content_chunk", "Content_summary"]:
+                    result["classes_exist"] = False
+                    result["has_sufficient_data"] = False
+                
                 result["details"][class_name] = 0
                 logger.warning(f"Weaviate-Klasse '{class_name}' existiert nicht. Führen Sie zuerst den Crawler aus.")
         return result
@@ -228,6 +232,27 @@ def create_weaviate_schema(client: weaviate.WeaviateClient) -> bool:
             )
         except Exception as e:
             logger.error(f"Fehler beim Erstellen des Content_summary-Schemas: {e}")
+            return False
+    
+    # Schema für Quote
+    if "Quote" not in collection_names:
+        logger.info("Erstelle Quote-Schema...")
+        quote_properties = [
+            wvc.config.Property(name="url", data_type=wvc.config.DataType.TEXT),
+            wvc.config.Property(name="content", data_type=wvc.config.DataType.TEXT),
+            wvc.config.Property(name="source", data_type=wvc.config.DataType.TEXT),
+            wvc.config.Property(name="date", data_type=wvc.config.DataType.DATE),
+            wvc.config.Property(name="title", data_type=wvc.config.DataType.TEXT)
+        ]
+        
+        try:
+            quote_config = client.collections.create(
+                name="Quote",
+                properties=quote_properties,
+                vectorizer_config=wvc.config.Configure.Vectorizer.text2vec_openai()
+            )
+        except Exception as e:
+            logger.error(f"Fehler beim Erstellen des Quote-Schemas: {e}")
             return False
     
     logger.info("Schema-Prüfung abgeschlossen.")
