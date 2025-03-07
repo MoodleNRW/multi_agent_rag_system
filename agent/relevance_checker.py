@@ -1,5 +1,5 @@
 import chainlit as cl
-from langchain_core.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 from models.models_wrapper import get_llm
 from langchain.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser

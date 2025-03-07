@@ -1,10 +1,12 @@
 # agent/answerer.py
 
 import chainlit as cl
+import asyncio
+from typing import List, Tuple, Dict
 from .state import PlanExecute
 from models.models_wrapper import get_llm
 from langchain.prompts import PromptTemplate
-from langchain_core.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 
 class QuestionAnswerFromContext(BaseModel):
     """

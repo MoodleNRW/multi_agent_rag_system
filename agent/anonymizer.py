@@ -1,5 +1,5 @@
 import chainlit as cl
-from langchain_core.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 from .state import PlanExecute
 from models.models_wrapper import get_llm
 from langchain.prompts import PromptTemplate
@@ -87,7 +87,7 @@ Format Instructions: {format_instructions}
 
 class DeAnonymizePlan(BaseModel):
     """Possible results of the action."""
-    plan: list = Field(description="Plan to follow in future. with all the variables replaced with the mapped words.")
+    plan: list[str] = Field(description="Plan to follow in future. with all the variables replaced with the mapped words.")
 @cl.step(name="Deanonymize Plan", type="tool")
 async def deanonymize_queries(state: PlanExecute):
     """
