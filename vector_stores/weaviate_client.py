@@ -266,11 +266,23 @@ def create_weaviate_schema(client: weaviate.WeaviateClient) -> bool:
         ]
         
         try:
+            logger.info("Erstelle FAQ-Collection mit den Eigenschaften: question, answer, date, approved")
             faq_config = client.collections.create(
                 name="FAQ",
                 properties=faq_properties,
                 vectorizer_config=wvc.config.Configure.Vectorizer.text2vec_openai()
             )
+            logger.info("FAQ-Collection erfolgreich erstellt.")
+            
+            # Überprüfe, ob die Collection erstellt wurde
+            try:
+                collection_names = client.collections.list_all(simple=True)
+                if "FAQ" in collection_names:
+                    logger.info("FAQ-Collection wurde erfolgreich erstellt und ist in der Liste der Collections vorhanden.")
+                else:
+                    logger.error("FAQ-Collection wurde erstellt, ist aber nicht in der Liste der Collections vorhanden.")
+            except Exception as e:
+                logger.error(f"Fehler beim Überprüfen der erstellten FAQ-Collection: {e}")
         except Exception as e:
             logger.error(f"Fehler beim Erstellen des FAQ-Schemas: {e}")
             return False

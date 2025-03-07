@@ -86,6 +86,7 @@ async def save_faq_to_database(question: str, answer: str) -> bool:
     try:
         # Erstelle einen temporären Weaviate-Client
         client = create_weaviate_client()
+        logger.info("Temporärer Weaviate-Client für FAQ-Speicherung erstellt.")
         
         # Stelle sicher, dass der Client verbunden ist
         if not ensure_weaviate_connection(client):
@@ -94,36 +95,61 @@ async def save_faq_to_database(question: str, answer: str) -> bool:
         
         # Prüfe, ob die FAQ-Collection existiert
         collection_names = client.collections.list_all(simple=True)
+        logger.info(f"Verfügbare Collections: {collection_names}")
         
         if "FAQ" not in collection_names:
             logger.error("FAQ-Collection existiert nicht.")
-            return False
+            # Versuche, die Collection zu erstellen
+            logger.info("Versuche, die FAQ-Collection zu erstellen...")
+            from vector_stores.weaviate_client import create_weaviate_schema
+            if create_weaviate_schema(client):
+                logger.info("FAQ-Collection erfolgreich erstellt.")
+            else:
+                logger.error("Konnte FAQ-Collection nicht erstellen.")
+                return False
         
         # Hole die FAQ-Collection
         faq_collection = client.collections.get("FAQ")
+        logger.info("FAQ-Collection abgerufen.")
         
-        # Erstelle ein neues FAQ-Objekt
+        # Erstelle ein neues FAQ-Objekt mit korrekt formatiertem Datum
+        # Weaviate erwartet Datumsangaben im ISO 8601-Format: YYYY-MM-DDThh:mm:ss.sssZ
+        current_date = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         faq_object = {
             "question": question,
             "answer": answer,
-            "date": datetime.datetime.now().isoformat(),
+            "date": current_date,
             "approved": True  # Standardmäßig genehmigt, da vom Benutzer bestätigt
         }
+        logger.info(f"FAQ-Objekt erstellt: Frage={question[:30]}..., Datum={current_date}")
         
         # Füge das Objekt zur Collection hinzu
-        faq_collection.data.insert(faq_object)
-        
-        logger.info(f"FAQ erfolgreich gespeichert: {question[:50]}...")
-        return True
+        try:
+            result = faq_collection.data.insert(faq_object)
+            logger.info(f"FAQ erfolgreich gespeichert. Ergebnis: {result}")
+            
+            # Überprüfe, ob das Objekt tatsächlich gespeichert wurde
+            count_result = faq_collection.aggregate.over_all()
+            obj_count = 0
+            if hasattr(count_result, 'total_count'):
+                obj_count = count_result.total_count
+            logger.info(f"Anzahl der FAQ-Objekte nach dem Speichern: {obj_count}")
+            
+            return True
+        except Exception as e:
+            logger.error(f"Fehler beim Einfügen des FAQ-Objekts: {str(e)}")
+            return False
     except Exception as e:
-        logger.error(f"Fehler beim Speichern der FAQ: {str(e)}")
+        logger.error(f"Fehler beim Speichern der FAQ: {str(e)}", exc_info=True)
         return False
     finally:
         # Schließe den Client
         if client:
             try:
                 client.close()
-            except:
+                logger.info("Temporärer Weaviate-Client für FAQ-Speicherung geschlossen.")
+            except Exception as e:
+                logger.error(f"Fehler beim Schließen des Clients: {str(e)}")
                 pass
 
 async def add_faq_management_button():
@@ -152,7 +178,9 @@ async def on_show_faq_management(action):
     
     actions = [
         cl.Action(name="list_faqs", payload={}, label="📋 FAQs anzeigen"),
-        cl.Action(name="search_faqs", payload={}, label="🔍 FAQs durchsuchen")
+        cl.Action(name="search_faqs", payload={}, label="🔍 FAQs durchsuchen"),
+        cl.Action(name="debug_faq_db", payload={}, label="🛠️ FAQ-Datenbank prüfen"),
+        cl.Action(name="create_test_faq", payload={}, label="🧪 Test-FAQ erstellen")
     ]
     
     msg.actions = actions
@@ -201,6 +229,7 @@ async def get_faqs_from_database(limit: int = 10) -> list:
     try:
         # Erstelle einen temporären Weaviate-Client
         client = create_weaviate_client()
+        logger.info("Temporärer Weaviate-Client für FAQ-Abruf erstellt.")
         
         # Stelle sicher, dass der Client verbunden ist
         if not ensure_weaviate_connection(client):
@@ -209,6 +238,7 @@ async def get_faqs_from_database(limit: int = 10) -> list:
         
         # Prüfe, ob die FAQ-Collection existiert
         collection_names = client.collections.list_all(simple=True)
+        logger.info(f"Verfügbare Collections: {collection_names}")
         
         if "FAQ" not in collection_names:
             logger.error("FAQ-Collection existiert nicht.")
@@ -216,27 +246,242 @@ async def get_faqs_from_database(limit: int = 10) -> list:
         
         # Hole die FAQ-Collection
         faq_collection = client.collections.get("FAQ")
+        logger.info("FAQ-Collection abgerufen.")
         
-        # Hole alle FAQs
-        response = faq_collection.query.fetch_objects(
-            limit=limit,
-            sort=[{"path": ["date"], "order": "desc"}]  # Sortiere nach Datum absteigend
-        )
+        # Prüfe, ob die Collection Objekte enthält
+        count_result = faq_collection.aggregate.over_all()
+        obj_count = 0
+        if hasattr(count_result, 'total_count'):
+            obj_count = count_result.total_count
+        logger.info(f"Anzahl der FAQ-Objekte in der Collection: {obj_count}")
         
-        # Extrahiere die Objekte
-        faqs = []
-        for obj in response.objects:
-            properties = obj.properties
-            faqs.append(properties)
+        if obj_count == 0:
+            logger.warning("Keine FAQ-Objekte in der Collection gefunden.")
+            return []
         
-        return faqs
+        # Hole alle FAQs - versuche verschiedene Abfragemethoden
+        logger.info(f"Rufe bis zu {limit} FAQ-Objekte ab...")
+        
+        # Methode 1: Standardabfrage mit Sortierung
+        try:
+            logger.info("Versuche Abfrage mit Sortierung...")
+            response = faq_collection.query.fetch_objects(
+                limit=limit,
+                sort=[{"path": ["date"], "order": "desc"}]  # Sortiere nach Datum absteigend
+            )
+            
+            # Extrahiere die Objekte
+            faqs = []
+            if hasattr(response, 'objects') and response.objects:
+                logger.info(f"Anzahl der abgerufenen FAQ-Objekte: {len(response.objects)}")
+                for obj in response.objects:
+                    if hasattr(obj, 'properties'):
+                        faqs.append(obj.properties)
+                        logger.info(f"FAQ gefunden: {obj.properties.get('question', '')[:30]}...")
+                
+                if faqs:
+                    return faqs
+            else:
+                logger.warning("Keine FAQ-Objekte in der Antwort gefunden (Methode 1).")
+        except Exception as e:
+            logger.error(f"Fehler bei Abfragemethode 1: {str(e)}")
+        
+        # Methode 2: Einfache Abfrage ohne Sortierung
+        try:
+            logger.info("Versuche einfache Abfrage ohne Sortierung...")
+            response = faq_collection.query.fetch_objects(limit=limit)
+            
+            # Extrahiere die Objekte
+            faqs = []
+            if hasattr(response, 'objects') and response.objects:
+                logger.info(f"Anzahl der abgerufenen FAQ-Objekte: {len(response.objects)}")
+                for obj in response.objects:
+                    if hasattr(obj, 'properties'):
+                        faqs.append(obj.properties)
+                        logger.info(f"FAQ gefunden: {obj.properties.get('question', '')[:30]}...")
+                
+                if faqs:
+                    return faqs
+            else:
+                logger.warning("Keine FAQ-Objekte in der Antwort gefunden (Methode 2).")
+        except Exception as e:
+            logger.error(f"Fehler bei Abfragemethode 2: {str(e)}")
+        
+        # Methode 3: Direkte Abfrage mit where-Filter
+        try:
+            logger.info("Versuche Abfrage mit where-Filter...")
+            response = faq_collection.query.fetch_objects(
+                limit=limit,
+                filters={"path": ["approved"], "operator": "Equal", "valueBoolean": True}
+            )
+            
+            # Extrahiere die Objekte
+            faqs = []
+            if hasattr(response, 'objects') and response.objects:
+                logger.info(f"Anzahl der abgerufenen FAQ-Objekte: {len(response.objects)}")
+                for obj in response.objects:
+                    if hasattr(obj, 'properties'):
+                        faqs.append(obj.properties)
+                        logger.info(f"FAQ gefunden: {obj.properties.get('question', '')[:30]}...")
+                
+                if faqs:
+                    return faqs
+            else:
+                logger.warning("Keine FAQ-Objekte in der Antwort gefunden (Methode 3).")
+        except Exception as e:
+            logger.error(f"Fehler bei Abfragemethode 3: {str(e)}")
+        
+        # Wenn alle Methoden fehlschlagen, gib eine leere Liste zurück
+        logger.error("Alle Abfragemethoden sind fehlgeschlagen. Keine FAQs gefunden.")
+        return []
     except Exception as e:
-        logger.error(f"Fehler beim Abrufen der FAQs: {str(e)}")
+        logger.error(f"Fehler beim Abrufen der FAQs: {str(e)}", exc_info=True)
         return []
     finally:
         # Schließe den Client
         if client:
             try:
                 client.close()
-            except:
-                pass 
+                logger.info("Temporärer Weaviate-Client für FAQ-Abruf geschlossen.")
+            except Exception as e:
+                logger.error(f"Fehler beim Schließen des Clients: {str(e)}")
+                pass
+
+@cl.action_callback("debug_faq_db")
+async def on_debug_faq_db(action):
+    """
+    Callback für die Aktion 'FAQ-Datenbank prüfen'.
+    """
+    await action.remove()
+    
+    # Prüfe die Weaviate-Datenbank direkt
+    result = await debug_weaviate_database()
+    
+    # Zeige das Ergebnis an
+    await cl.Message(content=f"## 🛠️ Weaviate-Datenbankprüfung\n\n```json\n{result}\n```").send()
+
+async def debug_weaviate_database() -> str:
+    """
+    Prüft die Weaviate-Datenbank direkt und gibt Informationen zurück.
+    
+    Returns:
+        str: JSON-String mit Informationen über die Datenbank
+    """
+    import json
+    
+    client = None
+    result = {
+        "collections": [],
+        "faq_collection": {
+            "exists": False,
+            "properties": [],
+            "count": 0,
+            "objects": []
+        },
+        "error": None
+    }
+    
+    try:
+        # Erstelle einen temporären Weaviate-Client
+        client = create_weaviate_client()
+        logger.info("Temporärer Weaviate-Client für Debugging erstellt.")
+        
+        # Stelle sicher, dass der Client verbunden ist
+        if not ensure_weaviate_connection(client):
+            result["error"] = "Keine Verbindung zu Weaviate möglich."
+            return json.dumps(result, indent=2)
+        
+        # Hole alle Collections
+        collection_names = client.collections.list_all(simple=True)
+        result["collections"] = collection_names
+        
+        # Prüfe, ob die FAQ-Collection existiert
+        if "FAQ" in collection_names:
+            result["faq_collection"]["exists"] = True
+            
+            # Hole die FAQ-Collection
+            faq_collection = client.collections.get("FAQ")
+            
+            # Hole das Schema
+            schema = faq_collection.config.get()
+            if schema and "properties" in schema:
+                result["faq_collection"]["properties"] = [prop["name"] for prop in schema["properties"]]
+            
+            # Zähle die Objekte
+            try:
+                count_result = faq_collection.aggregate.over_all()
+                if hasattr(count_result, 'total_count'):
+                    result["faq_collection"]["count"] = count_result.total_count
+            except Exception as e:
+                result["faq_collection"]["count_error"] = str(e)
+            
+            # Hole alle Objekte
+            try:
+                response = faq_collection.query.fetch_objects(limit=10)
+                if hasattr(response, 'objects') and response.objects:
+                    for obj in response.objects:
+                        if hasattr(obj, 'properties'):
+                            result["faq_collection"]["objects"].append(obj.properties)
+                        else:
+                            result["faq_collection"]["objects"].append({"error": "Objekt hat keine properties"})
+            except Exception as e:
+                result["faq_collection"]["fetch_error"] = str(e)
+            
+            # Versuche, ein Testobjekt zu erstellen
+            try:
+                test_object = {
+                    "question": "DEBUG: Ist dies ein Test?",
+                    "answer": "Ja, dies ist ein Testobjekt zur Diagnose der FAQ-Datenbank.",
+                    "date": datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                    "approved": True
+                }
+                
+                insert_result = faq_collection.data.insert(test_object)
+                result["faq_collection"]["test_insert"] = "Erfolgreich"
+                result["faq_collection"]["test_insert_result"] = str(insert_result)
+            except Exception as e:
+                result["faq_collection"]["test_insert_error"] = str(e)
+        
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        result["error"] = str(e)
+        return json.dumps(result, indent=2)
+    finally:
+        # Schließe den Client
+        if client:
+            try:
+                client.close()
+                logger.info("Temporärer Weaviate-Client für Debugging geschlossen.")
+            except Exception as e:
+                logger.error(f"Fehler beim Schließen des Clients: {str(e)}") 
+
+@cl.action_callback("create_test_faq")
+async def on_create_test_faq(action):
+    """
+    Callback für die Aktion 'Test-FAQ erstellen'.
+    """
+    await action.remove()
+    
+    # Erstelle ein Test-FAQ
+    success = await create_test_faq()
+    
+    if success:
+        await cl.Message(content="✅ Test-FAQ wurde erfolgreich erstellt. Versuchen Sie jetzt, die FAQs anzuzeigen.").send()
+    else:
+        await cl.Message(content="⚠️ Fehler beim Erstellen des Test-FAQs.").send()
+
+async def create_test_faq() -> bool:
+    """
+    Erstellt ein Test-FAQ in der Datenbank.
+    
+    Returns:
+        bool: True bei erfolgreichem Erstellen, False sonst
+    """
+    # Erstelle ein Test-FAQ mit einer eindeutigen Frage
+    import time
+    timestamp = int(time.time())
+    
+    question = f"Test-Frage {timestamp}: Wie funktioniert das FAQ-System?"
+    answer = f"Dies ist eine Test-Antwort {timestamp}. Das FAQ-System speichert Fragen und Antworten in der Weaviate-Datenbank."
+    
+    return await save_faq_to_database(question, answer) 
