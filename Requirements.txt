@@ -29,3 +29,6 @@ plotly
 langchain-groq
 langchain-anthropic
 langchain-ollama
+
+#Crawler
+html2text
