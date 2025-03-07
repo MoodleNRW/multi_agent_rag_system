@@ -137,20 +137,6 @@ def store_conversation_item(question: str, answer: str, context: str):
     
     cl.user_session.set("conversation_history", conversation_history)
 
-async def add_evaluation_button():
-    """
-    Fügt einen Evaluierungsbutton zur UI hinzu.
-    """
-    eval_button = cl.Action(
-        name="show_evaluation",
-        payload={"action": "show"},
-        label="📊 RAGAS-Evaluierung"
-    )
-    
-    msg = cl.Message(content="")
-    msg.actions = [eval_button]
-    await msg.send()
-
 @cl.action_callback("show_evaluation")
 async def on_show_evaluation(action):
     """
