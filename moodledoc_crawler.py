@@ -8,7 +8,7 @@ import traceback
 import threading
 import html2text
 from datetime import datetime
-from queue import Queue
+from queue import Queue, Empty
 from collections import deque
 from urllib.parse import urljoin, urlparse
 from pathlib import Path
@@ -275,51 +275,79 @@ def scrape_and_collect(url):
     return subpages, text, metadata, quotes
 
 def scrape_website(url, visited=None, max_workers=10, depth=10, chunking_strategy="semantic"):
+    """
+    Crawlt eine Website und extrahiert Inhalte, Metadaten und Zitate.
+    
+    Args:
+        url: Start-URL für den Crawler
+        visited: Set von bereits besuchten URLs (optional)
+        max_workers: Anzahl der parallelen Worker-Threads
+        depth: Maximale Anzahl der zu crawlenden Seiten
+        chunking_strategy: Strategie für das Aufteilen des Textes
+        
+    Returns:
+        Dictionary mit verarbeiteten Daten
+    """
     global total_pages, completed_pages
+    
+    # Initialisiere das Set der besuchten URLs, falls nicht übergeben
     if visited is None:
-        visited = set()  # Keep track of visited URLs
-
-    pages_to_scrape = [url]
+        visited = set()
+    
+    # Verwende ein Thread-sicheres Set für besuchte URLs
+    visited_lock = threading.Lock()
+    
+    # Initialisiere die Ergebnislisten
     results = []
     all_quotes = []
+    results_lock = threading.Lock()
     
-    while pages_to_scrape:
-        current_batch = []
-        for _ in range(min(max_workers, len(pages_to_scrape))):
-            if not pages_to_scrape:
-                break
-            current_url = pages_to_scrape.pop(0)
-            if current_url not in visited:
-                visited.add(current_url)
-                current_batch.append(current_url)
-                total_pages += 1  # Increment total pages counter
-        
-        if not current_batch:
-            break
-        
-        # Verarbeite die aktuelle Batch parallel
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(scrape_and_collect, url): url for url in current_batch}
-            
-            for future in as_completed(futures):
+    # Initialisiere die Queue für zu crawlende URLs
+    url_queue = Queue()
+    url_queue.put(url)
+    
+    # Setze den Zähler für die Gesamtanzahl der Seiten
+    with lock:
+        total_pages = 1  # Starte mit der ersten URL
+    
+    # Funktion zum sicheren Hinzufügen einer URL zur Queue
+    def add_url_to_queue(new_url):
+        with visited_lock:
+            if new_url not in visited and len(visited) < depth:
+                visited.add(new_url)
+                url_queue.put(new_url)
+                with lock:
+                    total_pages += 1
+    
+    # Initialisiere die erste URL
+    with visited_lock:
+        visited.add(url)
+    
+    # Funktion für Worker-Threads
+    def worker():
+        global completed_pages
+        while True:
+            try:
+                # Hole die nächste URL aus der Queue mit Timeout
                 try:
-                    if depth==0:
-                        break
-                    subpages, text, metadata, quotes = future.result()
-                    depth = depth - 1;
-                    
-                    # Füge die Metadaten zum Text hinzu
-                    result = {
-                        "url": futures[future],
-                        "content": text,
-                        **metadata
-                    }
+                    current_url = url_queue.get(timeout=2)
+                except Empty:
+                    # Keine URLs mehr in der Queue
+                    break
+                
+                try:
+                    # Crawle die Seite
+                    subpages, text, metadata, quotes = scrape_and_collect(current_url)
                     
                     # Füge das Ergebnis zur Liste hinzu
-                    results.append(result)
-                    
-                    # Füge die Quotes zur Liste hinzu
-                    all_quotes.extend(quotes)
+                    with results_lock:
+                        result = {
+                            "url": current_url,
+                            "content": text,
+                            **metadata
+                        }
+                        results.append(result)
+                        all_quotes.extend(quotes)
                     
                     # Aktualisiere den Fortschritt
                     with lock:
@@ -328,14 +356,41 @@ def scrape_website(url, visited=None, max_workers=10, depth=10, chunking_strateg
                     
                     # Füge neue Subpages zur Queue hinzu
                     for subpage in subpages:
-                        if subpage not in visited:
-                            pages_to_scrape.append(subpage)
+                        add_url_to_queue(subpage)
+                
                 except Exception as e:
-                    print(f"Fehler beim Verarbeiten von {futures[future]}: {str(e)}")
+                    print(f"Fehler beim Verarbeiten von {current_url}: {str(e)}")
                     traceback.print_exc()
+                
+                finally:
+                    # Markiere die Aufgabe als erledigt
+                    url_queue.task_done()
+            
+            except Exception as e:
+                print(f"Unerwarteter Fehler im Worker-Thread: {str(e)}")
+                traceback.print_exc()
+    
+    # Starte die Worker-Threads
+    threads = []
+    for _ in range(max_workers):
+        thread = threading.Thread(target=worker)
+        thread.daemon = True
+        thread.start()
+        threads.append(thread)
+    
+    # Warte, bis alle URLs verarbeitet wurden oder die maximale Tiefe erreicht ist
+    try:
+        # Warte auf die Verarbeitung aller URLs mit Timeout
+        url_queue.join()
         
-        if depth <= 0:
-            break
+        # Zusätzliche Sicherheit: Warte auf leere Queue
+        timeout = 30  # 30 Sekunden Timeout
+        start_time = time.time()
+        while not url_queue.empty() and time.time() - start_time < timeout:
+            time.sleep(0.5)
+    
+    except KeyboardInterrupt:
+        print("Crawling wurde vom Benutzer unterbrochen.")
     
     # Verarbeite die gesammelten Daten
     processed_data = {}
@@ -370,6 +425,8 @@ def scrape_website(url, visited=None, max_workers=10, depth=10, chunking_strateg
     
     # Speichere die Quotes separat
     processed_data["quotes"] = all_quotes
+    
+    print(f"Crawling abgeschlossen. {len(processed_data) - 1} Seiten verarbeitet, {len(all_quotes)} Zitate extrahiert.")
     
     return processed_data
 
