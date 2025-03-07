@@ -78,27 +78,27 @@ class KeepAliveWeaviateVectorStore(WeaviateVectorStore):
             
         return super().similarity_search(*args, **kwargs)
 
-def create_retrievers() -> Tuple[Optional[object], Optional[object], Optional[object]]:
+def create_retrievers() -> Tuple[Optional[object], Optional[object], Optional[object], Optional[object]]:
     """
-    Erstellt Retriever für verschiedene Inhaltstypen (Chunks, Summaries, Quotes).
+    Erstellt Retriever für verschiedene Inhaltstypen (Chunks, Summaries, Quotes, FAQs).
     
     Returns:
-        Tuple aus drei Retrievern (chunks, summaries, quotes) oder None für fehlende Retriever
+        Tuple aus vier Retrievern (chunks, summaries, quotes, faqs) oder None für fehlende Retriever
     """
     try:
         # Stelle sicher, dass der globale Client existiert und verbunden ist
         client = ensure_global_client()
         if client is None:
             logger.error("Konnte keinen funktionierenden Weaviate-Client erstellen")
-            return None, None, None
+            return None, None, None, None
         
         # Erstelle Retriever mit dem globalen Client
         return create_retrievers_with_client(client)
     except Exception as e:
         logger.error(f"Fehler beim Erstellen der Retriever: {str(e)}")
-        return None, None, None
+        return None, None, None, None
 
-def create_retrievers_with_client(client) -> Tuple[Optional[object], Optional[object], Optional[object]]:
+def create_retrievers_with_client(client) -> Tuple[Optional[object], Optional[object], Optional[object], Optional[object]]:
     """
     Erstellt Retriever für verschiedene Inhaltstypen mit einem bestimmten Weaviate-Client.
     
@@ -106,7 +106,7 @@ def create_retrievers_with_client(client) -> Tuple[Optional[object], Optional[ob
         client: Der Weaviate-Client, der für die Retriever verwendet werden soll.
         
     Returns:
-        Tuple aus drei Retrievern (chunks, summaries, quotes) oder None für fehlende Retriever
+        Tuple aus vier Retrievern (chunks, summaries, quotes, faqs) oder None für fehlende Retriever
     """
     try:
         # Überprüfe, ob Klassen existieren und Daten enthalten
@@ -115,7 +115,7 @@ def create_retrievers_with_client(client) -> Tuple[Optional[object], Optional[ob
         
         if not data_status["classes_exist"]:
             logger.error("Weaviate-Klassen existieren nicht. Führen Sie zuerst den Crawler aus.")
-            return None, None, None
+            return None, None, None, None
         
         if not data_status["has_sufficient_data"]:
             class_name = "Content_chunk"
@@ -163,6 +163,23 @@ def create_retrievers_with_client(client) -> Tuple[Optional[object], Optional[ob
             logger.error(f"Fehler beim Erstellen des Quote-Vector-Store: {str(e)}")
             # Fallback: Verwende Content_chunk
             quotes_vector_store = chunks_vector_store
+            
+        # Für FAQs verwenden wir die FAQ-Collection
+        faq_vector_store = None
+        try:
+            # Prüfe, ob die FAQ-Collection existiert
+            if "FAQ" in data_status["details"]:
+                faq_vector_store = KeepAliveWeaviateVectorStore(
+                    client=client, 
+                    index_name="FAQ", 
+                    embedding=embeddings,
+                    text_key="question"  # Wir suchen primär nach ähnlichen Fragen
+                )
+                logger.info(f"FAQ-Vector-Store mit {data_status['details'].get('FAQ', 0)} Objekten erstellt.")
+            else:
+                logger.warning("Keine FAQ-Collection gefunden. FAQ-Retriever wird nicht erstellt.")
+        except Exception as e:
+            logger.error(f"Fehler beim Erstellen des FAQ-Vector-Store: {str(e)}")
 
         # Retriever mit angepassten Suchparametern erstellen
         chunks_retriever = chunks_vector_store.as_retriever(search_kwargs={"k": 4})     
@@ -175,12 +192,18 @@ def create_retrievers_with_client(client) -> Tuple[Optional[object], Optional[ob
             
         quotes_retriever = quotes_vector_store.as_retriever(search_kwargs={"k": 10})
         
+        # FAQ-Retriever erstellen, falls verfügbar
+        faq_retriever = None
+        if faq_vector_store is not None:
+            faq_retriever = faq_vector_store.as_retriever(search_kwargs={"k": 3})
+            logger.info("FAQ-Retriever erfolgreich erstellt.")
+        
         logger.info("Retriever erfolgreich erstellt.")
-        return chunks_retriever, summaries_retriever, quotes_retriever
+        return chunks_retriever, summaries_retriever, quotes_retriever, faq_retriever
 
     except weaviate.exceptions.WeaviateBaseError as e:
         logger.error(f"Weaviate-Fehler beim Erstellen der Retriever: {str(e)}")
-        return None, None, None
+        return None, None, None, None
     except Exception as e:
         logger.error(f"Allgemeiner Fehler beim Erstellen der Retriever: {str(e)}")
-        return None, None, None
+        return None, None, None, None

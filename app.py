@@ -22,6 +22,7 @@ from utils.graph_visualization import display_graph
 # Import ausgelagerte Module
 from ui.ui_handlers import update_ui
 from ui.evaluation_ui import add_evaluation_button, store_conversation_item
+from ui.faq_ui import show_save_to_faq_option, add_faq_management_button
 from vector_stores.db_manager import reconnect_weaviate_if_needed
 from evaluation.realtime_evaluator import start_evaluation, evaluate_step, complete_evaluation
 
@@ -77,11 +78,12 @@ async def initialize_retrievers_and_check_data(client):
         
         # Initialize vector store retrievers mit dem übergebenen Client
         from vector_stores.retriever import create_retrievers_with_client
-        chunks_retriever, summaries_retriever, quotes_retriever = create_retrievers_with_client(client)
+        chunks_retriever, summaries_retriever, quotes_retriever, faq_retriever = create_retrievers_with_client(client)
         cl.user_session.set("retrievers", {
             "chunks": chunks_retriever,
             "summaries": summaries_retriever,
-            "quotes": quotes_retriever
+            "quotes": quotes_retriever,
+            "faq": faq_retriever
         })
         
         # Send welcome message
@@ -121,6 +123,9 @@ async def start():
     
     # Füge Evaluierungsbutton hinzu
     await add_evaluation_button()
+    
+    # Füge FAQ-Management-Button hinzu
+    await add_faq_management_button()
     
     # Initialisiere Retriever und überprüfe Daten
     await initialize_retrievers_and_check_data(client)
@@ -250,6 +255,12 @@ async def process_message(message_content: str):
         
         # Schließe die Echtzeit-Evaluierung ab
         await complete_evaluation()
+        
+        # Zeige Option zum Speichern als FAQ an
+        await show_save_to_faq_option(
+            question=message_content,
+            answer=final_response
+        )
     else:
         await cl.Message(content="Ich konnte keine Antwort generieren. Bitte formulieren Sie Ihre Frage um.").send()
 

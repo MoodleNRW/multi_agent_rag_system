@@ -417,12 +417,13 @@ async def reconnect_weaviate_if_needed():
             logger.info("Weaviate-Verbindung wiederhergestellt.")
             
             # Aktualisiere auch die Retriever, da sie möglicherweise auf den alten Client verweisen
-            chunks_retriever, summaries_retriever, quotes_retriever = create_retrievers()
-            if chunks_retriever and summaries_retriever and quotes_retriever:
+            chunks_retriever, summaries_retriever, quotes_retriever, faq_retriever = create_retrievers()
+            if chunks_retriever and summaries_retriever and quotes_retriever and faq_retriever:
                 cl.user_session.set("retrievers", {
                     "chunks": chunks_retriever,
                     "summaries": summaries_retriever,
-                    "quotes": quotes_retriever
+                    "quotes": quotes_retriever,
+                    "faq": faq_retriever
                 })
                 logger.info("Retriever wurden aktualisiert.")
             else:
@@ -436,12 +437,13 @@ async def reconnect_weaviate_if_needed():
         if client:
             # Aktualisiere die Retriever mit dem neuen Client
             try:
-                chunks_retriever, summaries_retriever, quotes_retriever = create_retrievers()
-                if chunks_retriever and summaries_retriever and quotes_retriever:
+                chunks_retriever, summaries_retriever, quotes_retriever, faq_retriever = create_retrievers()
+                if chunks_retriever and summaries_retriever and quotes_retriever and faq_retriever:
                     cl.user_session.set("retrievers", {
                         "chunks": chunks_retriever,
                         "summaries": summaries_retriever,
-                        "quotes": quotes_retriever
+                        "quotes": quotes_retriever,
+                        "faq": faq_retriever
                     })
                     logger.info("Retriever wurden mit neuem Client aktualisiert.")
                     return True

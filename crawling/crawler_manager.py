@@ -204,11 +204,12 @@ async def run_crawler_process(process):
             
             try:
                 # Initialisiere die Retriever nach dem Crawling
-                chunks_retriever, summaries_retriever, quotes_retriever = create_retrievers()
+                chunks_retriever, summaries_retriever, quotes_retriever, faq_retriever = create_retrievers()
                 cl.user_session.set("retrievers", {
                     "chunks": chunks_retriever,
                     "summaries": summaries_retriever,
-                    "quotes": quotes_retriever
+                    "quotes": quotes_retriever,
+                    "faq": faq_retriever
                 })
                 
                 await cl.Message(content="Willkommen! Ich bin bereit, Ihre Fragen über Moodle zu beantworten ✅. Was möchten Sie wissen oder tun?").send()
