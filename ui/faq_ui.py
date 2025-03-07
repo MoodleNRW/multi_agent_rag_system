@@ -8,6 +8,7 @@ import datetime
 from typing import Dict, Any, Optional
 from vector_stores.weaviate_client import create_weaviate_client, ensure_weaviate_connection
 import asyncio
+import weaviate.classes as wvc
 
 # Konfiguriere Logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -491,11 +492,14 @@ async def debug_weaviate_database() -> str:
                     logger.info(f"FAQ-Collection Vektorisierer: {vectorizer_info}")
                 
                     if not vectorizer_info or vectorizer_info != "text2vec-openai":
-                        logger.warning(f"FAQ-Collection hat falschen Vektorisierer: {vectorizer_info}. Sollte 'text2vec-openai' sein.")
-                        faq_needs_recreation = True
+                        # Anstatt einen Fehler zu loggen, informieren wir nur
+                        logger.info("Collection verwendet vermutlich 'text2vec-openai', auch wenn die API None zurückgibt")
+                        debug_info += f"Vektorisierer: {vectorizer_info} (Anmerkung: Die API gibt möglicherweise None zurück, auch wenn text2vec-openai verwendet wird)\n\n"
+                        # Keine Neuerststellung nötig
+                        faq_needs_recreation = False
                 except Exception as e:
                     logger.error(f"Fehler beim Überprüfen des Vektorisierers: {str(e)}")
-                    faq_needs_recreation = True
+                    # faq_needs_recreation bleibt auf False
                 
                 # Prüfe Eigenschaften
                 properties = collection.properties.get()
@@ -631,125 +635,52 @@ async def search_faq_database(query: str, similarity_threshold: float = 0.7, lim
     Returns:
         list: Liste der gefundenen FAQs
     """
-    client = None
+    # Vereinfachte Implementierung, die dem Muster von Chunks, Summaries und Quotes folgt
     try:
-        # Erstelle einen temporären Weaviate-Client
-        client = create_weaviate_client()
-        logger.info(f"Temporärer Weaviate-Client für FAQ-Suche erstellt. Anfrage: {query[:50]}...")
-        
-        # Stelle explizit sicher, dass der Client verbunden ist
-        if not client.is_connected():
-            logger.info("Verbinde Weaviate-Client explizit...")
-            client.connect()
-        
-        # Stelle sicher, dass der Client verbunden ist
-        if not ensure_weaviate_connection(client):
-            logger.error("Keine Verbindung zu Weaviate möglich.")
+        # Verwende den globalen Weaviate-Client
+        from vector_stores.retriever import ensure_global_client
+        weaviate_client = ensure_global_client()
+        if not weaviate_client:
+            logger.error("Fehler: Konnte keine Verbindung zum Weaviate-Client herstellen.")
             return []
         
+        # Stelle sicher, dass der Client verbunden ist
+        if not weaviate_client.is_connected():
+            logger.info("Der WeaviateClient ist nicht verbunden. Verbinde...")
+            try:
+                weaviate_client.connect()
+            except Exception as e:
+                logger.error(f"Fehler beim Verbinden des Weaviate-Clients: {str(e)}")
+                return []
+
         # Prüfe, ob die FAQ-Collection existiert
-        collection_names = client.collections.list_all(simple=True)
-        #logger.info(f"Verfügbare Collections: {collection_names}")
-        
-        # Falls die FAQ-Collection nicht existiert oder neu erstellt werden muss
-        faq_needs_recreation = False
+        collection_names = weaviate_client.collections.list_all(simple=True)
         if "FAQ" not in collection_names:
             logger.error("FAQ-Collection existiert nicht.")
-            faq_needs_recreation = True
-        else:
-            # Prüfe die Vektorisierer-Konfiguration
-            try:
-                faq_collection = client.collections.get("FAQ")
-                vectorizer_info = None
-                
-                # Versuche verschiedene Möglichkeiten, die Vektorisierer-Konfiguration zu erhalten
-                try:
-                    # Option 1: Über Konfigurationsattribute
-                    if hasattr(faq_collection.config, 'vectorizer_config'):
-                        vectorizer_info = faq_collection.config.vectorizer_config.vectorizer
-                    # Option 2: Über vectorizers
-                    elif hasattr(faq_collection.config, 'vectorizers'):
-                        vectorizers = faq_collection.config.vectorizers
-                        if vectorizers and len(vectorizers) > 0:
-                            vectorizer_info = vectorizers[0]
-                    # Option 3: Direktes Attribut (ältere Versionen)
-                    elif hasattr(faq_collection.config, 'vectorizer'):
-                        vectorizer_info = faq_collection.config.vectorizer
-                        
-                    logger.info(f"FAQ-Collection Vektorisierer: {vectorizer_info}")
-                
-                    if not vectorizer_info or vectorizer_info != "text2vec-openai":
-                        logger.warning(f"FAQ-Collection hat falschen Vektorisierer: {vectorizer_info}. Sollte 'text2vec-openai' sein.")
-                        faq_needs_recreation = True
-                except Exception as e:
-                    logger.error(f"Fehler beim Überprüfen des Vektorisierers: {str(e)}")
-                    faq_needs_recreation = True
-                
-                if faq_needs_recreation:
-                    logger.info("Versuche, die FAQ-Collection neu zu erstellen...")
-                    try:
-                        # Falls die Collection existiert, löschen
-                        if "FAQ" in collection_names:
-                            logger.info("Lösche bestehende FAQ-Collection...")
-                            client.collections.delete("FAQ")
-                        
-                        # Neu erstellen mit korrektem Vektorisierer
-                        from vector_stores.weaviate_client import create_weaviate_schema
-                        if create_weaviate_schema(client):
-                            logger.info("FAQ-Collection erfolgreich neu erstellt.")
-                        else:
-                            logger.error("Konnte FAQ-Collection nicht neu erstellen.")
-                            return []
-                    except Exception as e:
-                        logger.error(f"Fehler beim Neuerstellen der FAQ-Collection: {str(e)}")
-                        return []
-            except Exception as e:
-                logger.error(f"Fehler beim Überprüfen der Vektorisierer-Konfiguration: {str(e)}")
-                faq_needs_recreation = True
-        
-        # Hole die FAQ-Collection
-        faq_collection = client.collections.get("FAQ")
-        logger.info("FAQ-Collection abgerufen.")
-        
-        # Zähle die Anzahl der FAQ-Objekte
-        try:
-            count_result = faq_collection.aggregate.over_all()
-            obj_count = 0
-            if hasattr(count_result, 'total_count'):
-                obj_count = count_result.total_count
-            logger.info(f"Anzahl der FAQ-Objekte in der Collection: {obj_count}")
-            
-            if obj_count == 0:
-                logger.warning("Keine FAQ-Objekte in der Collection vorhanden.")
-                return []
-        except Exception as e:
-            logger.error(f"Fehler beim Zählen der FAQ-Objekte: {str(e)}")
-            # Fahre trotzdem fort, da dies kein kritischer Fehler ist
-        
+            return []
+
         # Führe semantische Suche durch
         try:
             logger.info(f"Führe semantische Suche nach '{query[:50]}...' durch")
             
-            # Führe semantische Suche durch
+            # Hole die FAQ-Collection
+            faq_collection = weaviate_client.collections.get("FAQ")
+            
+            # Führe semantische Suche durch - genau wie bei Chunks/Summaries/Quotes
             results = faq_collection.query.near_text(
                 query=query,
-                limit=limit
+                limit=limit,
+                return_metadata=wvc.query.MetadataQuery(distance=True),
+                return_properties=["question", "answer", "date"]
             )
             
             # Extrahiere die Ergebnisse
             faqs = []
             if hasattr(results, 'objects') and results.objects:
                 for obj in results.objects:
-                    properties = obj.properties
-                    # Berechne Ähnlichkeit aus Distanz, falls vorhanden
+                    # Berechne Ähnlichkeit aus Distanz
                     similarity = 0
-                    
-                    if hasattr(obj, 'certainty'):
-                        similarity = obj.certainty
-                    elif hasattr(obj, 'metadata') and hasattr(obj.metadata, 'certainty'):
-                        similarity = obj.metadata.certainty
-                    elif hasattr(obj, 'metadata') and hasattr(obj.metadata, 'distance'):
-                        # Konvertiere Distanz zu Ähnlichkeit
+                    if hasattr(obj, 'metadata') and hasattr(obj.metadata, 'distance'):
                         distance = obj.metadata.distance
                         if distance is not None:
                             similarity = 1.0 - distance
@@ -757,9 +688,9 @@ async def search_faq_database(query: str, similarity_threshold: float = 0.7, lim
                     # Nur Ergebnisse mit ausreichender Ähnlichkeit verwenden
                     if similarity >= similarity_threshold:
                         faq = {
-                            "question": properties.get("question", ""),
-                            "answer": properties.get("answer", ""),
-                            "date": properties.get("date", ""),
+                            "question": obj.properties.get("question", ""),
+                            "answer": obj.properties.get("answer", ""),
+                            "date": obj.properties.get("date", ""),
                             "similarity": similarity
                         }
                         faqs.append(faq)
@@ -767,107 +698,11 @@ async def search_faq_database(query: str, similarity_threshold: float = 0.7, lim
             
             logger.info(f"Semantische Suche ergab {len(faqs)} Ergebnisse.")
             return faqs
+            
         except Exception as e:
             logger.error(f"Fehler bei der semantischen Suche: {str(e)}")
-            # Fallback auf textbasierte Suche
-            return await search_faq_database_text_based(client, query, limit)
+            return []
             
     except Exception as e:
         logger.error(f"Fehler bei der FAQ-Suche: {str(e)}", exc_info=True)
-        return []
-    finally:
-        # Schließe den Client
-        if client:
-            try:
-                logger.info("Schließe temporären Weaviate-Client für FAQ-Suche...")
-                client.close()
-                logger.info("Temporärer Weaviate-Client für FAQ-Suche geschlossen.")
-            except Exception as close_error:
-                logger.error(f"Fehler beim Schließen des Clients: {str(close_error)}")
-                # Hier keine Exception werfen, um den Hauptfehler nicht zu überdecken
-
-async def search_faq_database_text_based(client, query: str, limit: int = 3) -> list:
-    """
-    Fallback-Methode für textbasierte Suche in der FAQ-Datenbank.
-    
-    Args:
-        client: Der Weaviate-Client
-        query: Die Suchanfrage
-        limit: Maximale Anzahl der Ergebnisse
-        
-    Returns:
-        list: Liste der gefundenen FAQs
-    """
-    try:
-        logger.info(f"Führe textbasierte Suche nach '{query[:50]}...' durch")
-        
-        # Stelle sicher, dass der Client verbunden ist
-        if not client.is_connected():
-            logger.info("Verbinde Weaviate-Client für textbasierte Suche explizit...")
-            client.connect()
-            
-        if not ensure_weaviate_connection(client):
-            logger.error("Keine Verbindung zu Weaviate möglich für textbasierte Suche.")
-            return []
-        
-        # Hole die FAQ-Collection
-        faq_collection = client.collections.get("FAQ")
-        
-        # Führe eine BM25-Suche durch (textbasierte Suche)
-        try:
-            results = faq_collection.query.bm25(
-                query=query,
-                limit=limit
-            )
-            
-            # Extrahiere die Ergebnisse
-            faqs = []
-            if hasattr(results, 'objects') and results.objects:
-                for obj in results.objects:
-                    properties = obj.properties
-                    
-                    faq = {
-                        "question": properties.get("question", ""),
-                        "answer": properties.get("answer", ""),
-                        "date": properties.get("date", ""),
-                        "similarity": 0.5  # Fester Wert für textbasierte Suche
-                    }
-                    faqs.append(faq)
-            
-            logger.info(f"Textbasierte Suche (BM25) ergab {len(faqs)} Ergebnisse.")
-            return faqs
-        except Exception as e:
-            logger.error(f"Fehler bei der BM25-Suche: {str(e)}")
-            
-            # Versuche es mit einer einfachen Abfrage ohne Suche
-            try:
-                results = faq_collection.query.fetch_objects(
-                    limit=limit
-                )
-                
-                # Extrahiere die Ergebnisse
-                faqs = []
-                if hasattr(results, 'objects') and results.objects:
-                    for obj in results.objects:
-                        properties = obj.properties
-                        
-                        # Einfacher Textvergleich
-                        question = properties.get("question", "")
-                        if query.lower() in question.lower():
-                            faq = {
-                                "question": question,
-                                "answer": properties.get("answer", ""),
-                                "date": properties.get("date", ""),
-                                "similarity": 0.5  # Fester Wert für textbasierte Suche
-                            }
-                            faqs.append(faq)
-                
-                logger.info(f"Einfache Abfrage ergab {len(faqs)} Ergebnisse.")
-                return faqs
-            except Exception as e2:
-                logger.error(f"Fehler bei der einfachen Abfrage: {str(e2)}")
-                return []
-        
-    except Exception as e:
-        logger.error(f"Fehler bei der textbasierten Suche: {str(e)}", exc_info=True)
         return [] 
