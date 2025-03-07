@@ -71,7 +71,7 @@ Wenn keine ausreichenden Daten in der Vektordatenbank vorhanden sind, wird die A
 Das System verfügt über einen integrierten Web-Crawler, der speziell für die Moodle-Dokumentation optimiert ist. Sie können den Crawler manuell ausführen, um die Vektordatenbank mit aktuellen Daten zu füllen:
 
 ```bash
-python moodledoc_crawler.py https://docs.moodle.org/dev/Main_Page 50
+python3 moodledoc_crawler.py https://moodlenrw.de 50
 ```
 
 Parameter:

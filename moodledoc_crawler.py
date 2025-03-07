@@ -247,8 +247,11 @@ def get_subpages(url):
 def update_progress():
     global completed_pages, total_pages
     with lock:
-        progress = (completed_pages / total_pages) * 100 if total_pages > 0 else 100
-        # Klare separate Zeile für jeden Fortschrittsschritt, damit die Ausgabe besser von Chainlit erkannt wird
+        # Ensure total_pages is at least 1 to avoid division by zero
+        if not hasattr(update_progress, 'total_pages_initialized'):
+            total_pages = 1
+            update_progress.total_pages_initialized = True
+        progress = (completed_pages / total_pages) * 100 if total_pages > 0 else 0
         print(f"[Fortschritt] {progress:.2f}% ({completed_pages}/{total_pages} Seiten verarbeitet)")
         
         # Zusätzlich neue Zeile für bessere Protokollierung
@@ -309,9 +312,11 @@ def scrape_website(url, visited=None, max_workers=10, depth=10, chunking_strateg
     # Setze den Zähler für die Gesamtanzahl der Seiten
     with lock:
         total_pages = 1  # Starte mit der ersten URL
+        completed_pages = 0  # Setze completed_pages zurück
     
     # Funktion zum sicheren Hinzufügen einer URL zur Queue
     def add_url_to_queue(new_url):
+        global total_pages  # Deklariere total_pages als global
         with visited_lock:
             if new_url not in visited and len(visited) < depth:
                 visited.add(new_url)
