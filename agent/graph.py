@@ -34,8 +34,6 @@ async def create_agent_graph():
     agent_workflow.add_node("answer", run_qualtative_answer_workflow)
     agent_workflow.add_node("replan", replan_step)
     agent_workflow.add_node("get_final_answer", run_qualtative_answer_workflow_for_final_answer)
-    agent_workflow.add_node("check_hallucination", is_answer_grounded_on_context)
-    agent_workflow.add_node("check_relevance", is_relevant_content)
 
     # Set entry point
     agent_workflow.set_entry_point("anonymize_question")

@@ -3,8 +3,11 @@ import chainlit as cl
 import signal
 import sys
 import logging
-import dotenv
+import warnings
 import json
+import asyncio
+from typing import Dict, Any, List, Optional
+import dotenv
 
 # Import eigene Module 
 from agent.support_summary_generator import support_summary_step
@@ -20,6 +23,7 @@ from utils.graph_visualization import display_graph
 from ui.ui_handlers import update_ui
 from ui.evaluation_ui import add_evaluation_button, store_conversation_item
 from vector_stores.db_manager import reconnect_weaviate_if_needed
+from evaluation.realtime_evaluator import start_evaluation, evaluate_step, complete_evaluation
 
 # Setze die Socket.IO Buffer-Größe, um "Too many packets in payload" zu vermeiden
 os.environ["SOCKETIO_MAX_HTTP_BUFFER_SIZE"] = os.getenv("SOCKETIO_MAX_HTTP_BUFFER_SIZE", "1e9")
@@ -152,11 +156,16 @@ async def on_message(message: cl.Message):
 
 @cl.step(name="Process Message", type="process")
 async def process_message(message_content: str):
-    """Verarbeite die Benutzeranfrage mit dem Workflow."""
+    """
+    Verarbeitet eine Nachricht und führt den Workflow aus.
+    
+    Args:
+        message_content: Der Inhalt der Nachricht
+    """
     # Kompiliere den Workflow
     workflow = await compile_workflow()
     # Visualisiere den Workflow
-    #display_graph(workflow)
+    display_graph(workflow)
     # Initialisiere den Zustand
     initial_state = PlanExecute(
         question=message_content,
@@ -168,8 +177,12 @@ async def process_message(message_content: str):
         curr_context="",
         aggregated_context="",
         tool="",
-        response=""
+        response="",
+        curr_state=""
     )
+    
+    # Starte die Echtzeit-Evaluierung
+    await start_evaluation(message_content)
     
     # Führe den Workflow aus
     config = {"recursion_limit": 25}
@@ -183,7 +196,19 @@ async def process_message(message_content: str):
         async for current_output in astream_generator:
             step_output = current_output
             last_key = next(iter(step_output))
-            await update_ui(step_output[last_key])
+            current_state = step_output[last_key]
+            
+            # Aktualisiere die UI
+            await update_ui(current_state)
+            
+            # Evaluiere den aktuellen Schritt
+            if "curr_state" in current_state:
+                # Extrahiere den aktuellen Schrittnamen
+                curr_state = current_state["curr_state"]
+                logger.info(f"Aktueller Schritt: {curr_state}")
+                
+                # Evaluiere den Schritt
+                await evaluate_step(current_state, curr_state)
             
     except GraphRecursionError as e:
         if step_output:
@@ -221,6 +246,9 @@ async def process_message(message_content: str):
             answer=final_response,
             context=final_state.get("aggregated_context", "")
         )
+        
+        # Schließe die Echtzeit-Evaluierung ab
+        await complete_evaluation()
     else:
         await cl.Message(content="Ich konnte keine Antwort generieren. Bitte formulieren Sie Ihre Frage um.").send()
 

@@ -4,6 +4,9 @@ from models.models_wrapper import get_llm
 from langchain.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from .state import PlanExecute
+import logging
+
+logger = logging.getLogger(__name__)
 
 class Relevance(BaseModel):
     """
@@ -21,6 +24,7 @@ async def is_relevant_content(state: PlanExecute):
         state: Ein Dictionary mit der Anfrage und dem Kontext.
     """
     state["curr_state"] = "relevance_check"
+    logger.info("=== RELEVANZPRÜFUNG WIRD AUFGERUFEN ===")
     
     is_relevant_content_prompt_template = """Du erhältst eine Anfrage: {query} und einen Kontext: {context}, der aus einem Vektorspeicher abgerufen wurde. 
     Du musst bestimmen, ob der Kontext für die Anfrage relevant ist.

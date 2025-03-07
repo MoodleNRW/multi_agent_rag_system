@@ -17,42 +17,24 @@ async def show_evaluation_option():
     msg = cl.Message(content="📊 **RAGAS-Evaluierung**\n\nFühren Sie eine Evaluierung des RAG-Systems mit RAGAS-Metriken durch. Sie können entweder eine Testdatendatei hochladen oder die aktuelle Konversation evaluieren.")
     
     actions = [
-        cl.Action(name="upload_test_data", payload={"action": "upload"}, label="📤 Testdaten hochladen"),
         cl.Action(name="evaluate_conversation", payload={"action": "evaluate"}, label="🔍 Aktuelle Konversation evaluieren")
     ]
     
     msg.actions = actions
     await msg.send()
 
-@cl.action_callback("upload_test_data")
-async def on_upload_test_data(action):
+# Entferne den @cl.on_file_upload Decorator, da er nicht verfügbar ist
+# Stattdessen implementieren wir eine alternative Lösung
+async def handle_file_upload(file_content):
     """
-    Callback für die Aktion 'Testdaten hochladen'.
-    """
-    await action.remove()
+    Verarbeitet den Inhalt einer hochgeladenen JSON-Datei.
     
-    # Zeige Datei-Upload-Element an
-    await cl.Message(content="Bitte laden Sie eine JSON-Datei mit Testdaten hoch. Die Datei sollte Listen für 'questions', 'answers', 'contexts' und optional 'ground_truths' enthalten.").send()
-    
-    file_element = cl.File(
-        name="test_data.json",
-        display="inline",
-        accept=["application/json"],
-        max_files=1
-    )
-    
-    msg = cl.Message(content="", elements=[file_element])
-    await msg.send()
-
-@cl.on_file_upload(accept=["application/json"])
-async def on_file_upload(file: cl.File):
-    """
-    Callback für den Upload einer JSON-Datei.
+    Args:
+        file_content: Der Inhalt der hochgeladenen Datei als String
     """
     try:
-        # Lese die hochgeladene Datei
-        content = file.content.decode("utf-8")
-        test_data = json.loads(content)
+        # Parse den JSON-Inhalt
+        test_data = json.loads(file_content)
         
         # Überprüfe, ob die erforderlichen Felder vorhanden sind
         if not all(key in test_data for key in ["questions", "answers", "contexts"]):
@@ -74,6 +56,32 @@ async def on_file_upload(file: cl.File):
         await cl.Message(content="⚠️ Die hochgeladene Datei enthält kein gültiges JSON.").send()
     except Exception as e:
         await cl.Message(content=f"⚠️ Fehler bei der Evaluierung: {str(e)}").send()
+
+@cl.action_callback("upload_test_data")
+async def on_upload_test_data(action):
+    """
+    Callback für die Aktion 'Testdaten hochladen'.
+    """
+    await action.remove()
+    
+    # Da wir keinen direkten Datei-Upload haben, geben wir Anweisungen zur manuellen Evaluierung
+    instructions = """
+    Da der direkte Datei-Upload in dieser Version nicht verfügbar ist, können Sie die Evaluierung wie folgt durchführen:
+    
+    1. Erstellen Sie eine Testdatendatei mit dem Kommandozeilen-Tool:
+       ```
+       python evaluation/run_evaluation.py --create-example --output example_test_data.json
+       ```
+       
+    2. Führen Sie die Evaluierung über die Kommandozeile durch:
+       ```
+       python evaluation/run_evaluation.py --file example_test_data.json
+       ```
+       
+    Alternativ können Sie die aktuelle Konversation evaluieren, indem Sie auf "Aktuelle Konversation evaluieren" klicken.
+    """
+    
+    await cl.Message(content=instructions).send()
 
 @cl.action_callback("evaluate_conversation")
 async def on_evaluate_conversation(action):

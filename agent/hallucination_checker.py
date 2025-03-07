@@ -3,6 +3,9 @@ from langchain_core.pydantic_v1 import BaseModel, Field
 from models.models_wrapper import get_llm
 from langchain.prompts import PromptTemplate
 from .state import PlanExecute
+import logging
+
+logger = logging.getLogger(__name__)
 
 class IsGroundedOnFacts(BaseModel):
     """
@@ -20,6 +23,7 @@ async def is_answer_grounded_on_context(state: PlanExecute):
         state: Ein Dictionary mit dem Kontext und der Antwort.
     """
     state["curr_state"] = "hallucination_check"
+    logger.info("=== HALLUZINATIONSPRÜFUNG WIRD AUFGERUFEN ===")
     
     is_grounded_on_facts_prompt_template = """Du bist ein Faktenprüfer, der feststellt, ob die gegebene Antwort {answer} im gegebenen Kontext {context} begründet ist.
     Es ist nicht wichtig, ob die Antwort sinnvoll ist, solange sie im Kontext begründet ist.
