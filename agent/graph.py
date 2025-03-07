@@ -18,6 +18,78 @@ from .verifier import can_be_answered
 from .hallucination_checker import is_answer_grounded_on_context
 from .relevance_checker import is_relevant_content
 
+# Neuer gemeinsamer Node für die Relevanzprüfung nach dem Retrieval
+@cl.step(name="Keep Only Relevant Content", type="process")
+async def keep_only_relevant_content(state: PlanExecute):
+    """
+    Behält nur den relevanten Inhalt aus den abgerufenen Dokumenten.
+    
+    Args:
+        state: Der aktuelle Zustand der Plan-Ausführung.
+    Returns:
+        Der aktualisierte Zustand mit dem relevanten Inhalt.
+    """
+    state["curr_state"] = "keep_only_relevant_content"
+    
+    # Extrahiere die benötigten Felder aus dem Zustand
+    question = state["question"]
+    context = state["context"] if "context" in state else state["aggregated_context"]
+    
+    # Prompt-Template für die Filterung relevanter Inhalte
+    keep_only_relevant_content_prompt_template = """Du erhältst eine Anfrage: {query} und abgerufene Dokumente: {retrieved_documents} aus einem Vektorspeicher.
+    Du musst alle nicht relevanten Informationen herausfiltern, die keine wichtigen Informationen zur {query} liefern.
+    Dein Ziel ist es lediglich, die nicht relevanten Informationen herauszufiltern.
+    Du kannst Teile von Sätzen entfernen, die nicht relevant für die Anfrage sind, oder ganze Sätze, die nicht relevant für die Anfrage sind.
+    FÜGE KEINE NEUEN INFORMATIONEN HINZU, DIE NICHT IN DEN ABGERUFENEN DOKUMENTEN ENTHALTEN SIND.
+    Gib nur den gefilterten relevanten Inhalt aus.
+    """
+    
+    keep_only_relevant_content_prompt = PromptTemplate(
+        template=keep_only_relevant_content_prompt_template,
+        input_variables=["query", "retrieved_documents"],
+    )
+    
+    # Definiere das Output-Schema
+    class KeepRelevantContent(BaseModel):
+        relevant_content: str = Field(description="Der relevante Inhalt aus den abgerufenen Dokumenten, der für die Anfrage relevant ist.")
+    
+    keep_only_relevant_content_llm = get_llm(temperature=0)
+    keep_only_relevant_content_chain = keep_only_relevant_content_prompt | keep_only_relevant_content_llm.with_structured_output(KeepRelevantContent, strict=True)
+    
+    # Eingabedaten für das LLM-Modell
+    input_data = {
+        "query": question,
+        "retrieved_documents": context
+    }
+    
+    # Aufruf des LLM zur Filterung der Inhalte
+    await cl.Message(content=f"Behalte nur relevante Inhalte für die Anfrage: '{question}'").send()
+    output = keep_only_relevant_content_chain.invoke(input_data)
+    relevant_content = output.relevant_content
+    
+    # Speichere den gefilterten Inhalt im Zustand
+    if not "aggregated_context" in state or state["aggregated_context"] == "":
+        state["aggregated_context"] = relevant_content
+    else:
+        state["aggregated_context"] += f"\n\n{relevant_content}"
+    
+    # Ist der gefilterte Inhalt leer (keine relevanten Inhalte gefunden)?
+    if not relevant_content.strip():
+        await cl.Message(content="Keine relevanten Inhalte gefunden. Versuche mit anderen Quellen.").send()
+        state["relevance_status"] = "not_grounded_on_the_original_context"
+        
+        # Bei keinen relevanten Inhalten wechsle zur nächsten Abrufmethode
+        if state["tool"] == "retrieve_chunks":
+            state["tool"] = "retrieve_summaries"
+        elif state["tool"] == "retrieve_summaries":
+            state["tool"] = "retrieve_quotes"
+    else:
+        await cl.Message(content=f"Relevante Inhalte gefunden und zum Kontext hinzugefügt.").send()
+        state["relevance_status"] = "grounded_on_the_original_context"
+    
+    # Gebe den aktualisierten Zustand zurück
+    return state
+
 async def create_agent_graph():
     agent_workflow = StateGraph(PlanExecute)
 
@@ -25,13 +97,14 @@ async def create_agent_graph():
     agent_workflow.add_node("anonymize_question", anonymize_queries)
     agent_workflow.add_node("planner", plan_step)
     agent_workflow.add_node("de_anonymize_plan", deanonymize_queries)
-    agent_workflow.add_node("break_down_plan", break_down_plan_step)
+    agent_workflow.add_node("break_down_plan_to_retrieve_or_answer", break_down_plan_step)  # Geänderten Namen
     agent_workflow.add_node("task_handler", run_task_handler_chain)
     agent_workflow.add_node("retrieve_chunks", run_qualitative_chunks_retrieval_workflow)
     agent_workflow.add_node("retrieve_summaries", run_qualitative_summaries_retrieval_workflow)
     agent_workflow.add_node("retrieve_quotes", run_qualitative_quotes_retrieval_workflow)
     agent_workflow.add_node("call_moodle_tool", run_moodle_tool_workflow)
     agent_workflow.add_node("answer", run_qualtative_answer_workflow)
+    agent_workflow.add_node("keep_only_relevant_content", keep_only_relevant_content)  # Neuer Node
     agent_workflow.add_node("replan", replan_step)
     agent_workflow.add_node("get_final_answer", run_qualtative_answer_workflow_for_final_answer)
 
@@ -41,8 +114,8 @@ async def create_agent_graph():
     # Add edges
     agent_workflow.add_edge("anonymize_question", "planner")
     agent_workflow.add_edge("planner", "de_anonymize_plan")
-    agent_workflow.add_edge("de_anonymize_plan", "break_down_plan")
-    agent_workflow.add_edge("break_down_plan", "task_handler")
+    agent_workflow.add_edge("de_anonymize_plan", "break_down_plan_to_retrieve_or_answer")
+    agent_workflow.add_edge("break_down_plan_to_retrieve_or_answer", "task_handler")
 
     # Add conditional edges for task handler
     agent_workflow.add_conditional_edges(
@@ -57,34 +130,28 @@ async def create_agent_graph():
         }
     )
 
-    # Add conditional edges for relevance check after retrieval
+    # Neue einheitliche Kanten für das Retrieval
+    agent_workflow.add_edge("retrieve_chunks", "keep_only_relevant_content")
+    agent_workflow.add_edge("retrieve_summaries", "keep_only_relevant_content")
+    agent_workflow.add_edge("retrieve_quotes", "keep_only_relevant_content")
+
+    # Konditionale Kanten für den neu hinzugefügten keep_only_relevant_content Node
     agent_workflow.add_conditional_edges(
-        "retrieve_chunks",
-        is_relevant_content,
+        "keep_only_relevant_content",
+        lambda x: x["relevance_status"],
         {
-            "relevant": "replan",
-            "not_relevant": "retrieve_summaries"
+            "grounded_on_the_original_context": "replan",
+            "not_grounded_on_the_original_context": "task_handler"  # Hier zu task_handler statt zur selben Funktion
         }
     )
 
-    agent_workflow.add_conditional_edges(
-        "retrieve_summaries",
-        is_relevant_content,
-        {
-            "relevant": "replan",
-            "not_relevant": "retrieve_quotes"
-        }
-    )
-
-    agent_workflow.add_edge("retrieve_quotes", "replan")
-    
-    # Add conditional edges for hallucination check after answer
+    # Ändere die Halluzinationsprüfung, um auf denselben Antwortknoten zurückzukehren
     agent_workflow.add_conditional_edges(
         "answer",
         is_answer_grounded_on_context,
         {
             "grounded_on_context": "replan",
-            "hallucination": "retrieve_chunks"
+            "hallucination": "answer"  # Hier zurück zu answer statt zu retrieve_chunks
         }
     )
 
@@ -96,7 +163,7 @@ async def create_agent_graph():
         can_be_answered,
         {
             "can_be_answered_already": "get_final_answer",
-            "cannot_be_answered_yet": "break_down_plan"
+            "cannot_be_answered_yet": "break_down_plan_to_retrieve_or_answer"  # Angepasster Name
         }
     )
 
