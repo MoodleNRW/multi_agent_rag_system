@@ -11,9 +11,9 @@ class AnonymizeQuestion(BaseModel):
     """Output Schema for the Anonymize Question tool."""
     anonymized_question: str = Field(description="Anonymized question.")
     mapping: Optional[Dict[str, str]] = Field(
-        default=None, 
+        default=None,
         description="Mapping of original name entities of the question to the variables."
-    )    
+    )
     explanation: str = Field(description="Explanation of the anonymization process.")
 
 @cl.step(name="Anonymize Query", type="tool")

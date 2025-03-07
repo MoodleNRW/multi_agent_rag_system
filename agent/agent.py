@@ -1,5 +1,5 @@
 from models.openai_models import get_open_ai, get_open_ai_json
-# from models.ollama_models import OllamaModel, OllamaJSONModel
+from models.ollama_models import get_ollama, get_ollama_json
 # from models.groq_models import GroqModel, GroqJSONModel
 # from models.claude_models import ClaudModel, ClaudJSONModel
 
@@ -16,8 +16,8 @@ class Agent:
     def get_llm(self, json_model=True):
         if self.selected_model_name == 'openai':
             return get_open_ai_json(model=self.model, temperature=self.temperature) if json_model else get_open_ai(model=self.model, temperature=self.temperature)
-        # if self.selected_model_name == 'ollama':
-        #     return OllamaJSONModel(model=self.model, temperature=self.temperature) if json_model else OllamaModel(model=self.model, temperature=self.temperature)
+        if self.selected_model_name == 'ollama':
+            return get_ollama_json(model=self.model, temperature=self.temperature) if json_model else get_ollama(model=self.model, temperature=self.temperature)
         # if self.selected_model_name == 'groq':
         #     return GroqJSONModel(
         #         model=self.model,

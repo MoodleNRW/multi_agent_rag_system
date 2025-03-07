@@ -55,13 +55,12 @@ def get_llm(temperature: float = 0, model_provider: Optional[str] = None, model_
         elif model_provider == 'groq':
             model_name = os.getenv('GROQ_MODEL_NAME', 'llama3-70b-8192')
         elif model_provider == 'ollama':
-            model_name = os.getenv('OLLAMA_MODEL_NAME', 'llama3')
+            model_name = os.getenv('OLLAMA_MODEL_NAME', 'llama3.2:3b')
         elif model_provider == 'claude':
             model_name = os.getenv('CLAUDE_MODEL_NAME', 'claude-3-opus-20240229')
     
     # URL für benutzerdefinierte Endpunkte
     url = os.getenv(f'{model_provider.upper()}_API_URL', "")
-    
     # Wähle den entsprechenden Modellanbieter
     if model_provider == 'openai':
         return get_open_ai_json(model=model_name, url=url, temperature=temperature) if json_model else get_open_ai(model=model_name, url=url, temperature=temperature)
@@ -73,10 +72,11 @@ def get_llm(temperature: float = 0, model_provider: Optional[str] = None, model_
         return get_claude_json(model=model_name, temperature=temperature) if json_model else get_claude(model=model_name, temperature=temperature)
     else:
         # Fallback auf OpenAI, wenn der angegebene Anbieter nicht verfügbar ist
-        logging.warning(f"Modellanbieter {model_provider} ist nicht verfügbar. Verwende OpenAI als Fallback.")
-        return get_open_ai_json(model=os.getenv('OPENAI_MODEL_NAME', 'gpt-4o'), temperature=temperature) if json_model else get_open_ai(model=os.getenv('OPENAI_MODEL_NAME', 'gpt-4o'), temperature=temperature)
-        # if self.selected_model_name == 'ollama':
-        #     return OllamaJSONModel(model=self.model, temperature=self.temperature) if json_model else OllamaModel(model=self.model, temperature=self.temperature)
+        if model_name == 'ollama':
+            return get_ollama_json(model=model_name, temperature=temperature) if json_model else get_ollama(model=model_name, temperature=temperature)
+        else:
+            logging.warning(f"Modellanbieter {model_provider} ist nicht verfügbar. Verwende OpenAI als Fallback.")
+            return get_open_ai_json(model=os.getenv('OPENAI_MODEL_NAME', 'gpt-4o'), temperature=temperature) if json_model else get_open_ai(model=os.getenv('OPENAI_MODEL_NAME', 'gpt-4o'), temperature=temperature)
         # if self.selected_model_name == 'groq':
         #     return GroqJSONModel(
         #         model=self.model,
