@@ -115,7 +115,8 @@ async def start():
     
     # Füge Admin-Button für Datenbankmanagement hinzu
     actions = [
-        cl.Action(name="db_management", payload={"action": "show"}, label="📊 Datenbank-Management")
+        cl.Action(name="db_management", payload={"action": "show"}, label="📊 Datenbank-Management"),
+        cl.Action(name="fix_faq_collection", payload={"action": "fix"}, label="🔧 FAQ-Collection reparieren")
     ]
     admin_msg = cl.Message(content="")
     admin_msg.actions = actions

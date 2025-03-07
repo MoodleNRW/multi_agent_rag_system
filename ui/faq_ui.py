@@ -88,6 +88,11 @@ async def save_faq_to_database(question: str, answer: str) -> bool:
         client = create_weaviate_client()
         logger.info("Temporärer Weaviate-Client für FAQ-Speicherung erstellt.")
         
+        # Stelle explizit sicher, dass der Client verbunden ist
+        if not client.is_connected():
+            logger.info("Verbinde Weaviate-Client für FAQ-Speicherung explizit...")
+            client.connect()
+        
         # Stelle sicher, dass der Client verbunden ist
         if not ensure_weaviate_connection(client):
             logger.error("Keine Verbindung zu Weaviate möglich.")
@@ -146,11 +151,12 @@ async def save_faq_to_database(question: str, answer: str) -> bool:
         # Schließe den Client
         if client:
             try:
+                logger.info("Schließe temporären Weaviate-Client für FAQ-Speicherung...")
                 client.close()
                 logger.info("Temporärer Weaviate-Client für FAQ-Speicherung geschlossen.")
-            except Exception as e:
-                logger.error(f"Fehler beim Schließen des Clients: {str(e)}")
-                pass
+            except Exception as close_error:
+                logger.error(f"Fehler beim Schließen des Clients: {str(close_error)}")
+                # Hier keine Exception werfen, um den Hauptfehler nicht zu überdecken
 
 async def add_faq_management_button():
     """
@@ -354,106 +360,151 @@ async def on_debug_faq_db(action):
     """
     await action.remove()
     
+    # Zeige Ladeanzeige
+    loading_msg = cl.Message(content="🔍 Prüfe die Weaviate-Datenbank... Dies kann einen Moment dauern.")
+    await loading_msg.send()
+    
     # Prüfe die Weaviate-Datenbank direkt
     result = await debug_weaviate_database()
     
+    # Entferne die Ladeanzeige
+    await loading_msg.remove()
+    
     # Zeige das Ergebnis an
-    await cl.Message(content=f"## 🛠️ Weaviate-Datenbankprüfung\n\n```json\n{result}\n```").send()
+    await cl.Message(content=f"## 🛠️ Weaviate-Datenbankprüfung\n\n{result}").send()
 
 async def debug_weaviate_database() -> str:
     """
-    Prüft die Weaviate-Datenbank direkt und gibt Informationen zurück.
+    Debuggt die Weaviate-Datenbank und gibt Informationen zurück.
     
     Returns:
-        str: JSON-String mit Informationen über die Datenbank
+        str: Debug-Informationen
     """
-    import json
-    
     client = None
-    result = {
-        "collections": [],
-        "faq_collection": {
-            "exists": False,
-            "properties": [],
-            "count": 0,
-            "objects": []
-        },
-        "error": None
-    }
-    
     try:
         # Erstelle einen temporären Weaviate-Client
         client = create_weaviate_client()
-        logger.info("Temporärer Weaviate-Client für Debugging erstellt.")
+        
+        # Stelle explizit sicher, dass der Client verbunden ist
+        if not client.is_connected():
+            logger.info("Verbinde Weaviate-Client für Debug explizit...")
+            client.connect()
         
         # Stelle sicher, dass der Client verbunden ist
         if not ensure_weaviate_connection(client):
-            result["error"] = "Keine Verbindung zu Weaviate möglich."
-            return json.dumps(result, indent=2)
+            return "⚠️ Keine Verbindung zu Weaviate möglich."
         
-        # Hole alle Collections
+        # Sammle Debug-Informationen
+        debug_info = "## 🔍 Weaviate-Datenbank Debug\n\n"
+        
+        # Prüfe, ob die Collections existieren
         collection_names = client.collections.list_all(simple=True)
-        result["collections"] = collection_names
+        debug_info += f"### Collections\n\n"
+        debug_info += f"Gefundene Collections: {', '.join(collection_names) if collection_names else 'Keine'}\n\n"
         
-        # Prüfe, ob die FAQ-Collection existiert
-        if "FAQ" in collection_names:
-            result["faq_collection"]["exists"] = True
+        # Prüfe jede Collection
+        for collection_name in collection_names:
+            debug_info += f"### Collection: {collection_name}\n\n"
             
-            # Hole die FAQ-Collection
-            faq_collection = client.collections.get("FAQ")
-            
-            # Hole das Schema
-            schema = faq_collection.config.get()
-            if schema and "properties" in schema:
-                result["faq_collection"]["properties"] = [prop["name"] for prop in schema["properties"]]
-            
-            # Zähle die Objekte
             try:
-                count_result = faq_collection.aggregate.over_all()
-                if hasattr(count_result, 'total_count'):
-                    result["faq_collection"]["count"] = count_result.total_count
-            except Exception as e:
-                result["faq_collection"]["count_error"] = str(e)
-            
-            # Hole alle Objekte
-            try:
-                response = faq_collection.query.fetch_objects(limit=10)
-                if hasattr(response, 'objects') and response.objects:
-                    for obj in response.objects:
-                        if hasattr(obj, 'properties'):
-                            result["faq_collection"]["objects"].append(obj.properties)
-                        else:
-                            result["faq_collection"]["objects"].append({"error": "Objekt hat keine properties"})
-            except Exception as e:
-                result["faq_collection"]["fetch_error"] = str(e)
-            
-            # Versuche, ein Testobjekt zu erstellen
-            try:
-                test_object = {
-                    "question": "DEBUG: Ist dies ein Test?",
-                    "answer": "Ja, dies ist ein Testobjekt zur Diagnose der FAQ-Datenbank.",
-                    "date": datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-                    "approved": True
-                }
+                collection = client.collections.get(collection_name)
                 
-                insert_result = faq_collection.data.insert(test_object)
-                result["faq_collection"]["test_insert"] = "Erfolgreich"
-                result["faq_collection"]["test_insert_result"] = str(insert_result)
+                # Prüfe Vektorisierer-Konfiguration
+                vectorizer_info = collection.config.vectorizer
+                debug_info += f"Vektorisierer: **{vectorizer_info}**\n\n"
+                
+                # Prüfe Eigenschaften
+                properties = collection.properties.get()
+                debug_info += f"Eigenschaften:\n"
+                for prop in properties:
+                    debug_info += f"- {prop.name} ({prop.data_type})\n"
+                debug_info += "\n"
+                
+                # Zähle Objekte
+                count_result = collection.aggregate.over_all()
+                obj_count = 0
+                if hasattr(count_result, 'total_count'):
+                    obj_count = count_result.total_count
+                debug_info += f"Anzahl der Objekte: {obj_count}\n\n"
+                
+                # Wenn es sich um die FAQ-Collection handelt, zeige ein Beispiel
+                if collection_name == "FAQ" and obj_count > 0:
+                    debug_info += "#### Beispiel-FAQ\n\n"
+                    try:
+                        example = collection.query.fetch_objects(limit=1)
+                        if hasattr(example, 'objects') and example.objects:
+                            obj = example.objects[0]
+                            properties = obj.properties
+                            debug_info += f"Frage: {properties.get('question', 'N/A')}\n\n"
+                            debug_info += f"Antwort: {properties.get('answer', 'N/A')}\n\n"
+                            debug_info += f"Datum: {properties.get('date', 'N/A')}\n\n"
+                            
+                            # Teste eine semantische Suche
+                            debug_info += "#### Test der semantischen Suche\n\n"
+                            try:
+                                query = properties.get('question', 'test')[:20]  # Verwende den Anfang der Frage als Testabfrage
+                                debug_info += f"Testabfrage: '{query}'\n\n"
+                                
+                                results = (
+                                    collection.query
+                                    .near_text(query=query)
+                                    .with_additional(["certainty"])
+                                    .with_limit(1)
+                                    .do()
+                                )
+                                
+                                if hasattr(results, 'objects') and results.objects:
+                                    debug_info += "✅ Semantische Suche erfolgreich\n\n"
+                                    obj = results.objects[0]
+                                    certainty = obj.certainty if hasattr(obj, 'certainty') else "N/A"
+                                    debug_info += f"Gefundene Ähnlichkeit: {certainty}\n\n"
+                                else:
+                                    debug_info += "⚠️ Semantische Suche ergab keine Ergebnisse\n\n"
+                            except Exception as e:
+                                debug_info += f"⚠️ Fehler bei der semantischen Suche: {str(e)}\n\n"
+                                
+                                # Wenn die semantische Suche fehlschlägt, versuche eine textbasierte Suche
+                                debug_info += "#### Test der textbasierten Suche\n\n"
+                                try:
+                                    query = properties.get('question', 'test')[:20]
+                                    debug_info += f"Testabfrage: '{query}'\n\n"
+                                    
+                                    results = (
+                                        collection.query
+                                        .get("question", "answer")
+                                        .with_where({
+                                            "path": ["question"],
+                                            "operator": "Like",
+                                            "valueText": f"*{query}*"
+                                        })
+                                        .with_limit(1)
+                                        .do()
+                                    )
+                                    
+                                    if hasattr(results, 'objects') and results.objects:
+                                        debug_info += "✅ Textbasierte Suche erfolgreich\n\n"
+                                    else:
+                                        debug_info += "⚠️ Textbasierte Suche ergab keine Ergebnisse\n\n"
+                                except Exception as e2:
+                                    debug_info += f"⚠️ Fehler bei der textbasierten Suche: {str(e2)}\n\n"
+                    except Exception as e:
+                        debug_info += f"⚠️ Fehler beim Abrufen eines Beispiels: {str(e)}\n\n"
             except Exception as e:
-                result["faq_collection"]["test_insert_error"] = str(e)
+                debug_info += f"⚠️ Fehler beim Abrufen von Informationen: {str(e)}\n\n"
         
-        return json.dumps(result, indent=2)
+        return debug_info
     except Exception as e:
-        result["error"] = str(e)
-        return json.dumps(result, indent=2)
+        return f"⚠️ Fehler beim Debugging der Weaviate-Datenbank: {str(e)}"
     finally:
         # Schließe den Client
         if client:
             try:
+                logger.info("Schließe temporären Weaviate-Client für Debug...")
                 client.close()
-                logger.info("Temporärer Weaviate-Client für Debugging geschlossen.")
-            except Exception as e:
-                logger.error(f"Fehler beim Schließen des Clients: {str(e)}") 
+                logger.info("Temporärer Weaviate-Client für Debug geschlossen.")
+            except Exception as close_error:
+                logger.error(f"Fehler beim Schließen des Debug-Clients: {str(close_error)}")
+                # Hier keine Exception werfen, um den Hauptfehler nicht zu überdecken
 
 @cl.action_callback("create_test_faq")
 async def on_create_test_faq(action):
@@ -462,7 +513,7 @@ async def on_create_test_faq(action):
     """
     await action.remove()
     
-    # Erstelle ein Test-FAQ
+    # Erstelle eine Test-FAQ
     success = await create_test_faq()
     
     if success:
@@ -472,18 +523,16 @@ async def on_create_test_faq(action):
 
 async def create_test_faq() -> bool:
     """
-    Erstellt ein Test-FAQ in der Datenbank.
+    Erstellt eine Test-FAQ in der Datenbank.
     
     Returns:
         bool: True bei erfolgreichem Erstellen, False sonst
     """
-    # Erstelle ein Test-FAQ mit einer eindeutigen Frage
-    import time
-    timestamp = int(time.time())
+    # Erstelle eine Test-FAQ
+    question = "Ist dies ein Test?"
+    answer = "Ja, dies ist eine Test-FAQ, die automatisch erstellt wurde, um die FAQ-Funktionalität zu testen."
     
-    question = f"Test-Frage {timestamp}: Wie funktioniert das FAQ-System?"
-    answer = f"Dies ist eine Test-Antwort {timestamp}. Das FAQ-System speichert Fragen und Antworten in der Weaviate-Datenbank."
-    
+    # Speichere die FAQ in der Datenbank
     return await save_faq_to_database(question, answer)
 
 async def search_faq_database(query: str, similarity_threshold: float = 0.7, limit: int = 3) -> list:
@@ -496,13 +545,18 @@ async def search_faq_database(query: str, similarity_threshold: float = 0.7, lim
         limit: Maximale Anzahl der Ergebnisse
         
     Returns:
-        list: Liste der gefundenen FAQs, sortiert nach Ähnlichkeit
+        list: Liste der gefundenen FAQs
     """
     client = None
     try:
         # Erstelle einen temporären Weaviate-Client
         client = create_weaviate_client()
         logger.info(f"Temporärer Weaviate-Client für FAQ-Suche erstellt. Anfrage: {query[:50]}...")
+        
+        # Stelle explizit sicher, dass der Client verbunden ist
+        if not client.is_connected():
+            logger.info("Verbinde Weaviate-Client explizit...")
+            client.connect()
         
         # Stelle sicher, dass der Client verbunden ist
         if not ensure_weaviate_connection(client):
@@ -521,65 +575,210 @@ async def search_faq_database(query: str, similarity_threshold: float = 0.7, lim
         faq_collection = client.collections.get("FAQ")
         logger.info("FAQ-Collection abgerufen.")
         
-        # Prüfe, ob die Collection Objekte enthält
-        count_result = faq_collection.aggregate.over_all()
-        obj_count = 0
-        if hasattr(count_result, 'total_count'):
-            obj_count = count_result.total_count
-        logger.info(f"Anzahl der FAQ-Objekte in der Collection: {obj_count}")
-        
-        if obj_count == 0:
-            logger.warning("Keine FAQ-Objekte in der Collection gefunden.")
-            return []
-        
-        # Führe eine semantische Suche durch
-        logger.info(f"Führe semantische Suche nach '{query[:50]}...' durch")
+        # Zähle die Anzahl der FAQ-Objekte
         try:
-            # Verwende near_text für die semantische Suche
-            response = faq_collection.query.near_text(
-                query=query,
-                limit=limit
-            )
+            count_result = faq_collection.aggregate.over_all()
+            obj_count = 0
+            if hasattr(count_result, 'total_count'):
+                obj_count = count_result.total_count
+            logger.info(f"Anzahl der FAQ-Objekte in der Collection: {obj_count}")
             
-            # Extrahiere die Objekte und ihre Ähnlichkeitswerte
-            results = []
-            if hasattr(response, 'objects') and response.objects:
-                logger.info(f"Anzahl der gefundenen FAQ-Objekte: {len(response.objects)}")
+            if obj_count == 0:
+                logger.warning("Keine FAQ-Objekte in der Collection vorhanden.")
+                return []
+        except Exception as e:
+            logger.error(f"Fehler beim Zählen der FAQ-Objekte: {str(e)}")
+            # Fahre trotzdem fort, da dies kein kritischer Fehler ist
+        
+        # Versuche zuerst die semantische Suche
+        try:
+            logger.info(f"Führe semantische Suche nach '{query[:50]}...' durch")
+            
+            # Überprüfe, ob die Collection einen Vektorisierer hat
+            try:
+                # Prüfe die Konfiguration der Collection
+                collection_config = faq_collection.config
+                vectorizer_info = None
                 
-                for obj in response.objects:
-                    if hasattr(obj, 'properties') and hasattr(obj, 'metadata'):
-                        # Extrahiere Ähnlichkeitswert
-                        similarity = obj.metadata.certainty if hasattr(obj.metadata, 'certainty') else 0
+                # Prüfe verschiedene mögliche Attribute für den Vektorisierer
+                if hasattr(collection_config, 'vectorizer'):
+                    vectorizer_info = collection_config.vectorizer
+                elif hasattr(collection_config, 'vectorizer_config') and hasattr(collection_config.vectorizer_config, 'vectorizer'):
+                    vectorizer_info = collection_config.vectorizer_config.vectorizer
+                
+                logger.info(f"FAQ-Collection Vektorisierer: {vectorizer_info}")
+                
+                if not vectorizer_info or vectorizer_info == "none":
+                    logger.warning(f"FAQ-Collection hat keinen oder falschen Vektorisierer: {vectorizer_info}. Sollte 'text2vec-openai' sein.")
+                    # Fallback auf textbasierte Suche
+                    return await search_faq_database_text_based(client, query, limit)
+            except Exception as e:
+                logger.error(f"Fehler beim Überprüfen des Vektorisierers: {str(e)}")
+                # Fallback auf textbasierte Suche
+                return await search_faq_database_text_based(client, query, limit)
+            
+            # Führe semantische Suche durch
+            try:
+                # Versuche es mit near_text
+                results = faq_collection.query.near_text(
+                    query=query,
+                    distance=1.0 - similarity_threshold,  # Konvertiere similarity zu distance
+                    limit=limit
+                )
+                
+                # Extrahiere die Ergebnisse
+                faqs = []
+                if hasattr(results, 'objects') and results.objects:
+                    for obj in results.objects:
+                        properties = obj.properties
+                        # Berechne Ähnlichkeit aus Distanz, falls vorhanden
+                        distance = obj.metadata.distance if hasattr(obj, 'metadata') and hasattr(obj.metadata, 'distance') else 0
+                        similarity = 1.0 - distance if distance is not None else 0.5
                         
-                        # Prüfe, ob die Ähnlichkeit über dem Schwellenwert liegt
-                        if similarity >= similarity_threshold:
-                            result = obj.properties
-                            result['similarity'] = similarity
-                            results.append(result)
-                            logger.info(f"FAQ gefunden: {result.get('question', '')[:30]}... (Ähnlichkeit: {similarity:.2f})")
+                        faq = {
+                            "question": properties.get("question", ""),
+                            "answer": properties.get("answer", ""),
+                            "date": properties.get("date", ""),
+                            "similarity": similarity
+                        }
+                        faqs.append(faq)
                 
-                if results:
-                    # Sortiere nach Ähnlichkeit (absteigend)
-                    results.sort(key=lambda x: x.get('similarity', 0), reverse=True)
-                    return results
-                else:
-                    logger.info(f"Keine FAQ-Objekte mit Ähnlichkeit >= {similarity_threshold} gefunden.")
-            else:
-                logger.warning("Keine FAQ-Objekte in der Antwort gefunden.")
+                logger.info(f"Semantische Suche ergab {len(faqs)} Ergebnisse.")
+                return faqs
+            except Exception as e:
+                logger.error(f"Fehler bei der near_text Suche: {str(e)}")
+                # Versuche es mit hybrid-Suche als Fallback
+                try:
+                    results = faq_collection.query.hybrid(
+                        query=query,
+                        alpha=0.5,  # Gleichgewicht zwischen Vektor- und Keyword-Suche
+                        limit=limit
+                    )
+                    
+                    # Extrahiere die Ergebnisse
+                    faqs = []
+                    if hasattr(results, 'objects') and results.objects:
+                        for obj in results.objects:
+                            properties = obj.properties
+                            # Berechne Ähnlichkeit aus Score, falls vorhanden
+                            score = obj.metadata.score if hasattr(obj, 'metadata') and hasattr(obj.metadata, 'score') else 0
+                            
+                            faq = {
+                                "question": properties.get("question", ""),
+                                "answer": properties.get("answer", ""),
+                                "date": properties.get("date", ""),
+                                "similarity": score if score is not None else 0.5
+                            }
+                            faqs.append(faq)
+                    
+                    logger.info(f"Hybrid-Suche ergab {len(faqs)} Ergebnisse.")
+                    return faqs
+                except Exception as e2:
+                    logger.error(f"Fehler bei der Hybrid-Suche: {str(e2)}")
+                    # Fallback auf textbasierte Suche
+                    return await search_faq_database_text_based(client, query, limit)
             
-            return []
         except Exception as e:
             logger.error(f"Fehler bei der semantischen Suche: {str(e)}")
-            return []
+            # Fallback auf textbasierte Suche
+            return await search_faq_database_text_based(client, query, limit)
+            
     except Exception as e:
-        logger.error(f"Fehler beim Durchsuchen der FAQ-Datenbank: {str(e)}", exc_info=True)
+        logger.error(f"Fehler bei der FAQ-Suche: {str(e)}", exc_info=True)
         return []
     finally:
         # Schließe den Client
         if client:
             try:
+                logger.info("Schließe temporären Weaviate-Client für FAQ-Suche...")
                 client.close()
                 logger.info("Temporärer Weaviate-Client für FAQ-Suche geschlossen.")
-            except Exception as e:
-                logger.error(f"Fehler beim Schließen des Clients: {str(e)}")
-                pass 
+            except Exception as close_error:
+                logger.error(f"Fehler beim Schließen des Clients: {str(close_error)}")
+                # Hier keine Exception werfen, um den Hauptfehler nicht zu überdecken
+
+async def search_faq_database_text_based(client, query: str, limit: int = 3) -> list:
+    """
+    Fallback-Methode für textbasierte Suche in der FAQ-Datenbank.
+    
+    Args:
+        client: Der Weaviate-Client
+        query: Die Suchanfrage
+        limit: Maximale Anzahl der Ergebnisse
+        
+    Returns:
+        list: Liste der gefundenen FAQs
+    """
+    try:
+        logger.info(f"Führe textbasierte Suche nach '{query[:50]}...' durch")
+        
+        # Stelle sicher, dass der Client verbunden ist
+        if not client.is_connected():
+            logger.info("Verbinde Weaviate-Client für textbasierte Suche explizit...")
+            client.connect()
+            
+        if not ensure_weaviate_connection(client):
+            logger.error("Keine Verbindung zu Weaviate möglich für textbasierte Suche.")
+            return []
+        
+        # Hole die FAQ-Collection
+        faq_collection = client.collections.get("FAQ")
+        
+        # Führe eine BM25-Suche durch (textbasierte Suche)
+        try:
+            results = faq_collection.query.bm25(
+                query=query,
+                limit=limit
+            )
+            
+            # Extrahiere die Ergebnisse
+            faqs = []
+            if hasattr(results, 'objects') and results.objects:
+                for obj in results.objects:
+                    properties = obj.properties
+                    
+                    faq = {
+                        "question": properties.get("question", ""),
+                        "answer": properties.get("answer", ""),
+                        "date": properties.get("date", ""),
+                        "similarity": 0.5  # Fester Wert für textbasierte Suche
+                    }
+                    faqs.append(faq)
+            
+            logger.info(f"Textbasierte Suche (BM25) ergab {len(faqs)} Ergebnisse.")
+            return faqs
+        except Exception as e:
+            logger.error(f"Fehler bei der BM25-Suche: {str(e)}")
+            
+            # Versuche es mit einer einfachen Abfrage ohne Suche
+            try:
+                results = faq_collection.query.fetch_objects(
+                    limit=limit
+                )
+                
+                # Extrahiere die Ergebnisse
+                faqs = []
+                if hasattr(results, 'objects') and results.objects:
+                    for obj in results.objects:
+                        properties = obj.properties
+                        
+                        # Einfacher Textvergleich
+                        question = properties.get("question", "")
+                        if query.lower() in question.lower():
+                            faq = {
+                                "question": question,
+                                "answer": properties.get("answer", ""),
+                                "date": properties.get("date", ""),
+                                "similarity": 0.5  # Fester Wert für textbasierte Suche
+                            }
+                            faqs.append(faq)
+                
+                logger.info(f"Einfache Abfrage ergab {len(faqs)} Ergebnisse.")
+                return faqs
+            except Exception as e2:
+                logger.error(f"Fehler bei der einfachen Abfrage: {str(e2)}")
+                return []
+        
+    except Exception as e:
+        logger.error(f"Fehler bei der textbasierten Suche: {str(e)}", exc_info=True)
+        return [] 

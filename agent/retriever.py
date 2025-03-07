@@ -37,7 +37,7 @@ async def run_faq_check_workflow(state: PlanExecute):
     try:
         # Suche in der FAQ-Datenbank mit hohem Ähnlichkeitsschwellenwert
         faqs = await search_faq_database(query, similarity_threshold=0.5, limit=1)
-        
+        print(faqs)
         if faqs:
             # FAQ gefunden
             faq = faqs[0]

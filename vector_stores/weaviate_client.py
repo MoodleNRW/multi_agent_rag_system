@@ -279,6 +279,25 @@ def create_weaviate_schema(client: weaviate.WeaviateClient) -> bool:
                 collection_names = client.collections.list_all(simple=True)
                 if "FAQ" in collection_names:
                     logger.info("FAQ-Collection wurde erfolgreich erstellt und ist in der Liste der Collections vorhanden.")
+                    
+                    # Überprüfe die Vektorisierer-Konfiguration
+                    faq_collection = client.collections.get("FAQ")
+                    vectorizer_info = faq_collection.config.vectorizer
+                    logger.info(f"FAQ-Collection Vektorisierer: {vectorizer_info}")
+                    
+                    if vectorizer_info != "text2vec-openai":
+                        logger.error(f"FAQ-Collection hat falschen Vektorisierer: {vectorizer_info}. Sollte 'text2vec-openai' sein.")
+                        # Lösche die Collection und erstelle sie neu
+                        client.collections.delete("FAQ")
+                        logger.info("FAQ-Collection gelöscht, um sie mit korrektem Vektorisierer neu zu erstellen.")
+                        
+                        # Erstelle die Collection neu
+                        faq_config = client.collections.create(
+                            name="FAQ",
+                            properties=faq_properties,
+                            vectorizer_config=wvc.config.Configure.Vectorizer.text2vec_openai()
+                        )
+                        logger.info("FAQ-Collection mit korrektem Vektorisierer neu erstellt.")
                 else:
                     logger.error("FAQ-Collection wurde erstellt, ist aber nicht in der Liste der Collections vorhanden.")
             except Exception as e:
