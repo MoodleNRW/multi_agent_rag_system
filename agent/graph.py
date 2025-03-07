@@ -11,7 +11,7 @@ from typing import List
 from .state import PlanExecute
 from .anonymizer import anonymize_queries, deanonymize_queries
 from .task_handler import run_task_handler_chain
-from .retriever import run_qualitative_chunks_retrieval_workflow, run_qualitative_summaries_retrieval_workflow, run_qualitative_quotes_retrieval_workflow
+from .retriever import run_qualitative_chunks_retrieval_workflow, run_qualitative_summaries_retrieval_workflow, run_qualitative_quotes_retrieval_workflow, run_parallel_retrieval_workflow
 from .tools import run_moodle_tool_workflow
 from .answerer import run_qualtative_answer_workflow, run_qualtative_answer_workflow_for_final_answer
 from .verifier import can_be_answered
@@ -54,7 +54,11 @@ async def keep_only_relevant_content(state: PlanExecute):
         relevant_content: str = Field(description="Der relevante Inhalt aus den abgerufenen Dokumenten, der für die Anfrage relevant ist.")
     
     keep_only_relevant_content_llm = get_llm(temperature=0)
-    keep_only_relevant_content_chain = keep_only_relevant_content_prompt | keep_only_relevant_content_llm.with_structured_output(KeepRelevantContent, strict=True)
+    keep_only_relevant_content_chain = keep_only_relevant_content_prompt | keep_only_relevant_content_llm.with_structured_output(
+        KeepRelevantContent, 
+        method="function_calling",
+        strict=True
+    )
     
     # Eingabedaten für das LLM-Modell
     input_data = {
@@ -83,6 +87,12 @@ async def keep_only_relevant_content(state: PlanExecute):
             state["tool"] = "retrieve_summaries"
         elif state["tool"] == "retrieve_summaries":
             state["tool"] = "retrieve_quotes"
+        elif state["tool"] == "retrieve_quotes" or state["tool"] == "parallel_retrieval":
+            # Wenn alle einzelnen Retrieval-Methoden und paralleles Retrieval keine relevanten Ergebnisse liefern,
+            # versuche es mit einer allgemeineren Abfrage im parallelen Retrieval
+            state["tool"] = "parallel_retrieval"
+            # Generalisiere die Abfrage
+            state["query_to_retrieve_or_answer"] = f"Allgemeine Informationen zu: {question}"
     else:
         await cl.Message(content=f"Relevante Inhalte gefunden und zum Kontext hinzugefügt.").send()
         state["relevance_status"] = "grounded_on_the_original_context"
@@ -102,6 +112,7 @@ async def create_agent_graph():
     agent_workflow.add_node("retrieve_chunks", run_qualitative_chunks_retrieval_workflow)
     agent_workflow.add_node("retrieve_summaries", run_qualitative_summaries_retrieval_workflow)
     agent_workflow.add_node("retrieve_quotes", run_qualitative_quotes_retrieval_workflow)
+    agent_workflow.add_node("parallel_retrieval", run_parallel_retrieval_workflow)  # Neuer Node für paralleles Retrieval
     agent_workflow.add_node("call_moodle_tool", run_moodle_tool_workflow)
     agent_workflow.add_node("answer", run_qualtative_answer_workflow)
     agent_workflow.add_node("keep_only_relevant_content", keep_only_relevant_content)  # Neuer Node
@@ -125,6 +136,7 @@ async def create_agent_graph():
             "chosen_tool_is_retrieve_chunks": "retrieve_chunks",
             "chosen_tool_is_retrieve_summaries": "retrieve_summaries",
             "chosen_tool_is_retrieve_quotes": "retrieve_quotes",
+            "chosen_tool_is_parallel_retrieval": "parallel_retrieval",
             "chose_tool_is_create_moodle_course": "call_moodle_tool",
             "chosen_tool_is_answer": "answer"
         }
@@ -134,6 +146,7 @@ async def create_agent_graph():
     agent_workflow.add_edge("retrieve_chunks", "keep_only_relevant_content")
     agent_workflow.add_edge("retrieve_summaries", "keep_only_relevant_content")
     agent_workflow.add_edge("retrieve_quotes", "keep_only_relevant_content")
+    agent_workflow.add_edge("parallel_retrieval", "keep_only_relevant_content")
 
     # Konditionale Kanten für den neu hinzugefügten keep_only_relevant_content Node
     agent_workflow.add_conditional_edges(
@@ -218,7 +231,11 @@ async def plan_step(state: PlanExecute):
 
     planner_llm = get_llm()
 
-    planner = planner_prompt | planner_llm.with_structured_output(Plan, strict = True)
+    planner = planner_prompt | planner_llm.with_structured_output(
+        Plan, 
+        method="function_calling",
+        strict=True
+    )
 
     result = planner.invoke({"question": state["anonymized_question"]})
 
@@ -259,11 +276,21 @@ async def break_down_plan_step(state: PlanExecute):
     )
 
     break_down_plan_llm = get_llm()
-    break_down_plan_chain = break_down_plan_prompt | break_down_plan_llm.with_structured_output(Plan,  strict = True)
+    break_down_plan_chain = break_down_plan_prompt | break_down_plan_llm.with_structured_output(
+        Plan,  
+        method="function_calling",
+        strict=True
+    )
 
     result = break_down_plan_chain.invoke({"plan": state["plan"]})
 
     state["plan"] = result.steps
+    
+    # Setze standardmäßig das parallel_retrieval Tool für den ersten Schritt
+    state["tool"] = "parallel_retrieval"
+    
+    # Log für Debugging
+    await cl.Message(content=f"🔄 Standardmäßig wird mit paralleler Retrieval-Methode begonnen").send()
 
     return state
 
@@ -298,7 +325,11 @@ async def replan_step(state: PlanExecute):
     )
 
     replan_llm = get_llm()
-    replan_chain = replan_prompt | replan_llm.with_structured_output(Plan,  strict = True)
+    replan_chain = replan_prompt | replan_llm.with_structured_output(
+        Plan,  
+        method="function_calling",
+        strict=True
+    )
 
     result = replan_chain.invoke({
         "question": state["question"],
@@ -331,9 +362,11 @@ async def retrieve_or_answer(state: PlanExecute):
         return "chosen_tool_is_retrieve_summaries"
     elif state["tool"] == "retrieve_quotes":
         return "chosen_tool_is_retrieve_quotes"
+    elif state["tool"] == "parallel_retrieval":
+        return "chosen_tool_is_parallel_retrieval"
     elif state["tool"] == "create_moodle_course":
         return "chose_tool_is_create_moodle_course"
     elif state["tool"] == "answer":
         return "chosen_tool_is_answer"
     else:
-        raise ValueError("Invalid tool was outputed. Must be either 'retrieve_chunks', 'retrieve_summaries', 'retrieve_quotes', 'create_moodle_course' or 'answer'")  
+        raise ValueError("Invalid tool was outputed. Must be either 'retrieve_chunks', 'retrieve_summaries', 'retrieve_quotes', 'parallel_retrieval', 'create_moodle_course' or 'answer'")  

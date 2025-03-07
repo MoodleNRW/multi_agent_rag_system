@@ -7,6 +7,7 @@ from datetime import datetime
 import dotenv
 import os
 import logging
+import asyncio
 from vector_stores.retriever import ensure_global_client
 
 dotenv.load_dotenv()
@@ -206,4 +207,55 @@ async def run_qualitative_quotes_retrieval_workflow(state: PlanExecute):
         except:
             pass
 
+    return state
+
+@cl.step(name="Parallel Retrieval", type="tool")
+async def run_parallel_retrieval_workflow(state: PlanExecute):
+    """
+    Führt alle drei Retrieval-Methoden parallel aus und kombiniert die Ergebnisse.
+    
+    Args:
+        state: Der aktuelle Zustand der Plan-Ausführung.
+    Returns:
+        Der aktualisierte Zustand mit den kombinierten Retrieval-Ergebnissen.
+    """
+    state["curr_state"] = "parallel_retrieval"
+    
+    # Erstelle Kopien des Zustands für jede Retrieval-Methode
+    chunks_state = state.copy()
+    summaries_state = state.copy()
+    quotes_state = state.copy()
+    
+    # Führe alle drei Retrieval-Methoden parallel aus
+    await cl.Message(content=f"Führe parallele Retrieval-Methoden für die Anfrage aus: '{state['query_to_retrieve_or_answer']}'").send()
+    
+    retrieval_tasks = [
+        run_qualitative_chunks_retrieval_workflow(chunks_state),
+        run_qualitative_summaries_retrieval_workflow(summaries_state),
+        run_qualitative_quotes_retrieval_workflow(quotes_state)
+    ]
+    
+    # Warte auf alle Retrieval-Ergebnisse
+    chunks_result, summaries_result, quotes_result = await asyncio.gather(*retrieval_tasks)
+    
+    # Extrahiere die Kontexte aus den Ergebnissen
+    chunks_context = chunks_result.get("curr_context", "")
+    summaries_context = summaries_result.get("curr_context", "")
+    quotes_context = quotes_result.get("curr_context", "")
+    
+    # Kombiniere die Kontexte mit Quellenangaben
+    combined_context = ""
+    if chunks_context:
+        combined_context += f"### Aus Chunks:\n{chunks_context}\n\n"
+    if summaries_context:
+        combined_context += f"### Aus Zusammenfassungen:\n{summaries_context}\n\n"
+    if quotes_context:
+        combined_context += f"### Aus Zitaten:\n{quotes_context}\n\n"
+    
+    # Aktualisiere den Zustand mit dem kombinierten Kontext
+    state["curr_context"] = combined_context
+    state["aggregated_context"] += combined_context
+    
+    await cl.Message(content=f"Parallele Retrieval-Methoden abgeschlossen. Kombinierte {len(chunks_context) + len(summaries_context) + len(quotes_context)} Zeichen an Kontext.").send()
+    
     return state

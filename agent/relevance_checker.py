@@ -42,7 +42,11 @@ async def is_relevant_content(state: PlanExecute):
     )
     
     is_relevant_content_llm = get_llm(temperature=0)
-    is_relevant_content_chain = is_relevant_content_prompt | is_relevant_content_llm.with_structured_output(Relevance, strict=True)
+    is_relevant_content_chain = is_relevant_content_prompt | is_relevant_content_llm.with_structured_output(
+        Relevance, 
+        method="function_calling",
+        strict=True
+    )
     
     question = state["question"]
     context = state["context"] if "context" in state else state["aggregated_context"]

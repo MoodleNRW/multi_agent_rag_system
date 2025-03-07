@@ -11,7 +11,6 @@ class AnonymizeQuestion(BaseModel):
     """Output Schema for the Anonymize Question tool."""
     anonymized_question: str = Field(description="Anonymized question.")
     mapping: Optional[Dict[str, str]] = Field(
-        default=None,
         description="Mapping of original name entities of the question to the variables."
     )
     explanation: str = Field(description="Explanation of the anonymization process.")
@@ -74,7 +73,11 @@ Format Instructions: {format_instructions}
     )
 
     anonymize_question_llm = get_llm()
-    anonymize_question_chain = anonymize_question_prompt | anonymize_question_llm.with_structured_output(AnonymizeQuestion, strict=True)
+    anonymize_question_chain = anonymize_question_prompt | anonymize_question_llm.with_structured_output(
+        AnonymizeQuestion, 
+        method="function_calling",
+        strict=True
+    )
 
     result = anonymize_question_chain.invoke({"question": state["question"], "format_instructions": anonymize_question_parser.get_format_instructions()})
     print(result)
@@ -109,7 +112,10 @@ async def deanonymize_queries(state: PlanExecute):
     )
 
     de_anonymize_plan_llm = get_llm()
-    de_anonymize_plan_chain = de_anonymize_plan_prompt | de_anonymize_plan_llm.with_structured_output(DeAnonymizePlan)
+    de_anonymize_plan_chain = de_anonymize_plan_prompt | de_anonymize_plan_llm.with_structured_output(
+        DeAnonymizePlan,
+        method="function_calling"
+    )
 
     result = de_anonymize_plan_chain.invoke({"plan": state["plan"], "mapping": json.dumps(state["mapping"])})
 

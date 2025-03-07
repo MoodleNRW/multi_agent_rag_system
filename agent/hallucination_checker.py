@@ -44,7 +44,11 @@ async def is_answer_grounded_on_context(state: PlanExecute):
     )
     
     is_grounded_on_facts_llm = get_llm(temperature=0)
-    is_grounded_on_facts_chain = is_grounded_on_facts_prompt | is_grounded_on_facts_llm.with_structured_output(IsGroundedOnFacts, strict=True)
+    is_grounded_on_facts_chain = is_grounded_on_facts_prompt | is_grounded_on_facts_llm.with_structured_output(
+        IsGroundedOnFacts, 
+        method="function_calling",
+        strict=True
+    )
     
     context = state["context"] if "context" in state else state["aggregated_context"]
     answer = state["response"]

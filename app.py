@@ -173,6 +173,7 @@ async def process_message(message_content: str):
         query_to_retrieve_or_answer="",
         plan=[],
         past_steps=[],
+        past_tool_usage=[],
         mapping={},
         curr_context="",
         aggregated_context="",

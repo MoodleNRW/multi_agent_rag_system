@@ -35,7 +35,11 @@ async def can_be_answered(state: PlanExecute):
     )
 
     can_be_answered_llm = get_llm()
-    can_be_answered_chain = can_be_answered_prompt | can_be_answered_llm.with_structured_output(CanBeAnsweredOutput ,  strict = True)
+    can_be_answered_chain = can_be_answered_prompt | can_be_answered_llm.with_structured_output(
+        CanBeAnsweredOutput,  
+        method="function_calling",
+        strict=True
+    )
 
     result = can_be_answered_chain.invoke({
         "question": state["question"],

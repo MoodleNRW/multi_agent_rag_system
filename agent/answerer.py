@@ -83,7 +83,11 @@ async def run_qualtative_answer_workflow(state: PlanExecute):
     )
     
     question_answer_from_context_llm = get_llm(temperature=0)
-    question_answer_from_context_cot_chain = question_answer_from_context_cot_prompt | question_answer_from_context_llm.with_structured_output(QuestionAnswerFromContext, strict=True)
+    question_answer_from_context_cot_chain = question_answer_from_context_cot_prompt | question_answer_from_context_llm.with_structured_output(
+        QuestionAnswerFromContext, 
+        method="function_calling",
+        strict=True
+    )
     
     response = question_answer_from_context_cot_chain.invoke({
         "context": state["curr_context"],
@@ -144,7 +148,11 @@ async def run_qualtative_answer_workflow_for_final_answer(state: PlanExecute):
     )
     
     final_answer_llm = get_llm(temperature=0)
-    final_answer_chain = final_answer_prompt | final_answer_llm.with_structured_output(QuestionAnswerFromContext, strict=True)
+    final_answer_chain = final_answer_prompt | final_answer_llm.with_structured_output(
+        QuestionAnswerFromContext, 
+        method="function_calling",
+        strict=True
+    )
     
     response = final_answer_chain.invoke({
         "question": state["question"],

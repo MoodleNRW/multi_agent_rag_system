@@ -34,6 +34,7 @@ class RealtimeEvaluator:
         }
         self.current_evaluation = {}
         self.start_time = None
+        self.total_retrieval_time = 0  # Neue Variable für die Gesamtzeit aller Retrieval-Schritte
     
     def start_evaluation(self, question: str):
         """
@@ -43,6 +44,7 @@ class RealtimeEvaluator:
             question: Die zu evaluierende Frage
         """
         self.start_time = time.time()
+        self.total_retrieval_time = 0  # Zurücksetzen der Gesamtzeit
         self.current_evaluation = {
             "question": question,
             "retrieval_start_time": None,
@@ -60,14 +62,17 @@ class RealtimeEvaluator:
     
     def log_retrieval_start(self):
         """Protokolliert den Start eines Retrieval-Schritts."""
-        if self.current_evaluation.get("retrieval_start_time") is None:
-            self.current_evaluation["retrieval_start_time"] = time.time()
-            logger.info(f"Retrieval-Start: {self.current_evaluation['retrieval_start_time']}")
+        self.current_evaluation["retrieval_start_time"] = time.time()
+        logger.info(f"Retrieval-Start: {self.current_evaluation['retrieval_start_time']}")
     
     def log_retrieval_end(self):
-        """Protokolliert das Ende eines Retrieval-Schritts."""
-        self.current_evaluation["retrieval_end_time"] = time.time()
-        logger.info(f"Retrieval-Ende: {self.current_evaluation['retrieval_end_time']}")
+        """Protokolliert das Ende eines Retrieval-Schritts und addiert die Zeit zur Gesamtzeit."""
+        end_time = time.time()
+        if "retrieval_start_time" in self.current_evaluation:
+            step_time = end_time - self.current_evaluation["retrieval_start_time"]
+            self.total_retrieval_time += step_time
+            logger.info(f"Retrieval-Schritt-Zeit: {step_time}, Gesamtzeit bisher: {self.total_retrieval_time}")
+        self.current_evaluation["retrieval_end_time"] = end_time
     
     def log_answer_start(self):
         """Protokolliert den Start eines Antwort-Generierungsschritts."""
@@ -244,10 +249,9 @@ class RealtimeEvaluator:
         # Berechne Zeiten
         total_time = end_time - self.start_time
         
-        retrieval_time = 0
-        if self.current_evaluation.get("retrieval_start_time") and self.current_evaluation.get("retrieval_end_time"):
-            retrieval_time = self.current_evaluation["retrieval_end_time"] - self.current_evaluation["retrieval_start_time"]
-            logger.info(f"Berechnete Retrieval-Zeit: {retrieval_time}")
+        # Verwende die akkumulierte Retrieval-Zeit
+        retrieval_time = self.total_retrieval_time
+        logger.info(f"Gesamte Retrieval-Zeit: {retrieval_time}")
         
         answer_time = 0
         if self.current_evaluation.get("answer_start_time") and self.current_evaluation.get("answer_end_time"):
@@ -298,9 +302,31 @@ class RealtimeEvaluator:
         
         # Füge Metriken hinzu
         message_content += "### ⏱️ Zeitmetriken\n\n"
-        message_content += f"- **Gesamtzeit**: {results['metrics']['total_time']:.2f} Sekunden\n"
-        message_content += f"- **Retrieval-Zeit**: {results['metrics']['retrieval_time']:.2f} Sekunden\n"
-        message_content += f"- **Antwort-Zeit**: {results['metrics']['answer_time']:.2f} Sekunden\n\n"
+        
+        # Formatiere Zeiten mit mehr Dezimalstellen für sehr kleine Werte
+        total_time = results['metrics']['total_time']
+        retrieval_time = results['metrics']['retrieval_time']
+        answer_time = results['metrics']['answer_time']
+        
+        # Verwende dynamische Formatierung für bessere Lesbarkeit kleiner Werte
+        if total_time < 0.01:
+            total_time_formatted = f"{total_time:.6f}"
+        else:
+            total_time_formatted = f"{total_time:.2f}"
+            
+        if retrieval_time < 0.01:
+            retrieval_time_formatted = f"{retrieval_time:.6f}"
+        else:
+            retrieval_time_formatted = f"{retrieval_time:.2f}"
+            
+        if answer_time < 0.01:
+            answer_time_formatted = f"{answer_time:.6f}"
+        else:
+            answer_time_formatted = f"{answer_time:.2f}"
+        
+        message_content += f"- **Gesamtzeit**: {total_time_formatted} Sekunden\n"
+        message_content += f"- **Retrieval-Zeit**: {retrieval_time_formatted} Sekunden\n"
+        message_content += f"- **Antwort-Zeit**: {answer_time_formatted} Sekunden\n\n"
         
         message_content += "### 🔄 Prozessmetriken\n\n"
         message_content += f"- **Anzahl Retrieval-Schritte**: {results['metrics']['num_retrieval_steps']}\n"
@@ -365,6 +391,7 @@ async def evaluate_step(state: Dict[str, Any], step_name: str):
         "retrieve_chunks", 
         "retrieve_summaries", 
         "retrieve_quotes", 
+        "parallel_retrieval",
         "retrieve_or_answer",
         "is_relevant_content",
         "check_relevance",
