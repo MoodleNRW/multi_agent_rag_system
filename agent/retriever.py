@@ -9,6 +9,7 @@ import os
 import logging
 import asyncio
 from vector_stores.retriever import ensure_global_client
+from ui.faq_ui import search_faq_database
 
 dotenv.load_dotenv()
 API_KEY = os.getenv('OPENAI_API_KEY')
@@ -16,6 +17,60 @@ API_KEY = os.getenv('OPENAI_API_KEY')
 # Konfiguriere Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+@cl.step(name="Check FAQ", type="tool")
+async def run_faq_check_workflow(state: PlanExecute):
+    """
+    Überprüft zuerst die FAQ-Datenbank auf eine passende Antwort.
+    
+    Args:
+        state: Der aktuelle Zustand der Plan-Ausführung.
+    Returns:
+        Der aktualisierte Zustand mit der FAQ-Antwort, falls gefunden.
+    """
+    state["curr_state"] = "check_faq"
+    query = state["query_to_retrieve_or_answer"]
+    
+    logger.info(f"Überprüfe FAQ-Datenbank für Anfrage: {query}")
+    await cl.Message(content="🔍 Überprüfe FAQ-Datenbank...").send()
+    
+    try:
+        # Suche in der FAQ-Datenbank mit hohem Ähnlichkeitsschwellenwert
+        faqs = await search_faq_database(query, similarity_threshold=0.5, limit=1)
+        
+        if faqs:
+            # FAQ gefunden
+            faq = faqs[0]
+            similarity = faq.get('similarity', 0)
+            logger.info(f"FAQ gefunden mit Ähnlichkeit: {similarity}")
+            
+            # Formatiere die Antwort
+            response = f"📚 **Aus den FAQs:**\n\n**Frage:** {faq['question']}\n\n**Antwort:** {faq['answer']}"
+            
+            # Aktualisiere den Zustand
+            state["curr_context"] = response
+            state["aggregated_context"] = response
+            state["response"] = response
+            state["tool"] = "answer"  # Wechsle direkt zur Antwort
+            
+            await cl.Message(content=f"✅ Passende FAQ gefunden (Ähnlichkeit: {similarity:.2%})").send()
+            return state
+        
+        # Keine passende FAQ gefunden
+        logger.info("Keine passende FAQ gefunden, fahre mit normaler Suche fort")
+        await cl.Message(content="ℹ️ Keine passende FAQ gefunden, suche in der Dokumentation...").send()
+        
+        # Setze auf paralleles Retrieval als nächsten Schritt
+        state["tool"] = "parallel_retrieval"
+        return state
+        
+    except Exception as e:
+        logger.error(f"Fehler beim Überprüfen der FAQ-Datenbank: {str(e)}")
+        await cl.Message(content="⚠️ Fehler beim Überprüfen der FAQ-Datenbank, fahre mit normaler Suche fort...").send()
+        
+        # Bei Fehler, fahre mit parallelem Retrieval fort
+        state["tool"] = "parallel_retrieval"
+        return state
 
 @cl.step(name="Retrieve Chunks", type="tool")
 async def run_qualitative_chunks_retrieval_workflow(state: PlanExecute):

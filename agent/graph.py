@@ -11,7 +11,13 @@ from typing import List
 from .state import PlanExecute
 from .anonymizer import anonymize_queries, deanonymize_queries
 from .task_handler import run_task_handler_chain
-from .retriever import run_qualitative_chunks_retrieval_workflow, run_qualitative_summaries_retrieval_workflow, run_qualitative_quotes_retrieval_workflow, run_parallel_retrieval_workflow
+from .retriever import (
+    run_qualitative_chunks_retrieval_workflow,
+    run_qualitative_summaries_retrieval_workflow,
+    run_qualitative_quotes_retrieval_workflow,
+    run_parallel_retrieval_workflow,
+    run_faq_check_workflow
+)
 from .tools import run_moodle_tool_workflow
 from .answerer import run_qualtative_answer_workflow, run_qualtative_answer_workflow_for_final_answer
 from .verifier import can_be_answered
@@ -107,15 +113,16 @@ async def create_agent_graph():
     agent_workflow.add_node("anonymize_question", anonymize_queries)
     agent_workflow.add_node("planner", plan_step)
     agent_workflow.add_node("de_anonymize_plan", deanonymize_queries)
-    agent_workflow.add_node("break_down_plan_to_retrieve_or_answer", break_down_plan_step)  # Geänderten Namen
+    agent_workflow.add_node("break_down_plan_to_retrieve_or_answer", break_down_plan_step)
     agent_workflow.add_node("task_handler", run_task_handler_chain)
+    agent_workflow.add_node("check_faq", run_faq_check_workflow)
     agent_workflow.add_node("retrieve_chunks", run_qualitative_chunks_retrieval_workflow)
     agent_workflow.add_node("retrieve_summaries", run_qualitative_summaries_retrieval_workflow)
     agent_workflow.add_node("retrieve_quotes", run_qualitative_quotes_retrieval_workflow)
-    agent_workflow.add_node("parallel_retrieval", run_parallel_retrieval_workflow)  # Neuer Node für paralleles Retrieval
+    agent_workflow.add_node("parallel_retrieval", run_parallel_retrieval_workflow)
     agent_workflow.add_node("call_moodle_tool", run_moodle_tool_workflow)
     agent_workflow.add_node("answer", run_qualtative_answer_workflow)
-    agent_workflow.add_node("keep_only_relevant_content", keep_only_relevant_content)  # Neuer Node
+    agent_workflow.add_node("keep_only_relevant_content", keep_only_relevant_content)
     agent_workflow.add_node("replan", replan_step)
     agent_workflow.add_node("get_final_answer", run_qualtative_answer_workflow_for_final_answer)
 
@@ -133,6 +140,7 @@ async def create_agent_graph():
         "task_handler",
         retrieve_or_answer,
         {
+            "chosen_tool_is_check_faq": "check_faq",
             "chosen_tool_is_retrieve_chunks": "retrieve_chunks",
             "chosen_tool_is_retrieve_summaries": "retrieve_summaries",
             "chosen_tool_is_retrieve_quotes": "retrieve_quotes",
@@ -141,6 +149,9 @@ async def create_agent_graph():
             "chosen_tool_is_answer": "answer"
         }
     )
+
+    # Add edge from FAQ check back to task handler
+    agent_workflow.add_edge("check_faq", "task_handler")
 
     # Neue einheitliche Kanten für das Retrieval
     agent_workflow.add_edge("retrieve_chunks", "keep_only_relevant_content")
@@ -154,7 +165,7 @@ async def create_agent_graph():
         lambda x: x["relevance_status"],
         {
             "grounded_on_the_original_context": "replan",
-            "not_grounded_on_the_original_context": "task_handler"  # Hier zu task_handler statt zur selben Funktion
+            "not_grounded_on_the_original_context": "task_handler"
         }
     )
 
@@ -163,8 +174,8 @@ async def create_agent_graph():
         "answer",
         is_answer_grounded_on_context,
         {
-            "grounded_on_context": "replan",
-            "hallucination": "answer"  # Hier zurück zu answer statt zu retrieve_chunks
+            "grounded_on_context": END,
+            "hallucination": "replan"
         }
     )
 
@@ -176,7 +187,7 @@ async def create_agent_graph():
         can_be_answered,
         {
             "can_be_answered_already": "get_final_answer",
-            "cannot_be_answered_yet": "break_down_plan_to_retrieve_or_answer"  # Angepasster Name
+            "cannot_be_answered_yet": "break_down_plan_to_retrieve_or_answer"
         }
     )
 
@@ -356,7 +367,9 @@ async def retrieve_or_answer(state: PlanExecute):
         updates the tool to use .
     """
     state["curr_state"] = "decide_tool"
-    if state["tool"] == "retrieve_chunks":
+    if state["tool"] == "check_faq":
+        return "chosen_tool_is_check_faq"
+    elif state["tool"] == "retrieve_chunks":
         return "chosen_tool_is_retrieve_chunks"
     elif state["tool"] == "retrieve_summaries":
         return "chosen_tool_is_retrieve_summaries"
@@ -369,4 +382,4 @@ async def retrieve_or_answer(state: PlanExecute):
     elif state["tool"] == "answer":
         return "chosen_tool_is_answer"
     else:
-        raise ValueError("Invalid tool was outputed. Must be either 'retrieve_chunks', 'retrieve_summaries', 'retrieve_quotes', 'parallel_retrieval', 'create_moodle_course' or 'answer'")  
+        raise ValueError("Invalid tool was outputed. Must be either 'check_faq', 'retrieve_chunks', 'retrieve_summaries', 'retrieve_quotes', 'parallel_retrieval', 'create_moodle_course' or 'answer'")  

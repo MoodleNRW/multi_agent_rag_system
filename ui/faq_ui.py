@@ -484,4 +484,102 @@ async def create_test_faq() -> bool:
     question = f"Test-Frage {timestamp}: Wie funktioniert das FAQ-System?"
     answer = f"Dies ist eine Test-Antwort {timestamp}. Das FAQ-System speichert Fragen und Antworten in der Weaviate-Datenbank."
     
-    return await save_faq_to_database(question, answer) 
+    return await save_faq_to_database(question, answer)
+
+async def search_faq_database(query: str, similarity_threshold: float = 0.7, limit: int = 3) -> list:
+    """
+    Sucht in der FAQ-Datenbank nach ähnlichen Fragen.
+    
+    Args:
+        query: Die Suchanfrage
+        similarity_threshold: Schwellenwert für die Ähnlichkeit (0-1)
+        limit: Maximale Anzahl der Ergebnisse
+        
+    Returns:
+        list: Liste der gefundenen FAQs, sortiert nach Ähnlichkeit
+    """
+    client = None
+    try:
+        # Erstelle einen temporären Weaviate-Client
+        client = create_weaviate_client()
+        logger.info(f"Temporärer Weaviate-Client für FAQ-Suche erstellt. Anfrage: {query[:50]}...")
+        
+        # Stelle sicher, dass der Client verbunden ist
+        if not ensure_weaviate_connection(client):
+            logger.error("Keine Verbindung zu Weaviate möglich.")
+            return []
+        
+        # Prüfe, ob die FAQ-Collection existiert
+        collection_names = client.collections.list_all(simple=True)
+        logger.info(f"Verfügbare Collections: {collection_names}")
+        
+        if "FAQ" not in collection_names:
+            logger.error("FAQ-Collection existiert nicht.")
+            return []
+        
+        # Hole die FAQ-Collection
+        faq_collection = client.collections.get("FAQ")
+        logger.info("FAQ-Collection abgerufen.")
+        
+        # Prüfe, ob die Collection Objekte enthält
+        count_result = faq_collection.aggregate.over_all()
+        obj_count = 0
+        if hasattr(count_result, 'total_count'):
+            obj_count = count_result.total_count
+        logger.info(f"Anzahl der FAQ-Objekte in der Collection: {obj_count}")
+        
+        if obj_count == 0:
+            logger.warning("Keine FAQ-Objekte in der Collection gefunden.")
+            return []
+        
+        # Führe eine semantische Suche durch
+        logger.info(f"Führe semantische Suche nach '{query[:50]}...' durch")
+        try:
+            # Verwende near_text für die semantische Suche
+            response = faq_collection.query.near_text(
+                query=query,
+                limit=limit
+            )
+            
+            # Extrahiere die Objekte und ihre Ähnlichkeitswerte
+            results = []
+            if hasattr(response, 'objects') and response.objects:
+                logger.info(f"Anzahl der gefundenen FAQ-Objekte: {len(response.objects)}")
+                
+                for obj in response.objects:
+                    if hasattr(obj, 'properties') and hasattr(obj, 'metadata'):
+                        # Extrahiere Ähnlichkeitswert
+                        similarity = obj.metadata.certainty if hasattr(obj.metadata, 'certainty') else 0
+                        
+                        # Prüfe, ob die Ähnlichkeit über dem Schwellenwert liegt
+                        if similarity >= similarity_threshold:
+                            result = obj.properties
+                            result['similarity'] = similarity
+                            results.append(result)
+                            logger.info(f"FAQ gefunden: {result.get('question', '')[:30]}... (Ähnlichkeit: {similarity:.2f})")
+                
+                if results:
+                    # Sortiere nach Ähnlichkeit (absteigend)
+                    results.sort(key=lambda x: x.get('similarity', 0), reverse=True)
+                    return results
+                else:
+                    logger.info(f"Keine FAQ-Objekte mit Ähnlichkeit >= {similarity_threshold} gefunden.")
+            else:
+                logger.warning("Keine FAQ-Objekte in der Antwort gefunden.")
+            
+            return []
+        except Exception as e:
+            logger.error(f"Fehler bei der semantischen Suche: {str(e)}")
+            return []
+    except Exception as e:
+        logger.error(f"Fehler beim Durchsuchen der FAQ-Datenbank: {str(e)}", exc_info=True)
+        return []
+    finally:
+        # Schließe den Client
+        if client:
+            try:
+                client.close()
+                logger.info("Temporärer Weaviate-Client für FAQ-Suche geschlossen.")
+            except Exception as e:
+                logger.error(f"Fehler beim Schließen des Clients: {str(e)}")
+                pass 
