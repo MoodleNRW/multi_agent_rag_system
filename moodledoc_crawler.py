@@ -863,7 +863,7 @@ def create_summaries_for_collected_data(collected_data):
             return
         
         # Initialisiere den LLM
-        llm = ChatOpenAI(api_key=openai_api_key, model_name="gpt-3.5-turbo")
+        llm = ChatOpenAI(api_key=openai_api_key, model_name="gpt-4o-mini")
         
         # Initialisiere Zähler für erfolgreiche und fehlgeschlagene Speicheroperationen
         successful_summaries = 0
@@ -969,7 +969,7 @@ def get_llm():
         raise ValueError("OPENAI_API_KEY Umgebungsvariable ist nicht gesetzt")
     
     # Initialisiere das Chat-Modell
-    llm = ChatOpenAI(api_key=openai_api_key, model_name="gpt-3.5-turbo")
+    llm = ChatOpenAI(api_key=openai_api_key, model_name="gpt-4o-mini")
     return llm
 
 def create_summary_for_content(content):

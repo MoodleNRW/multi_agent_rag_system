@@ -248,7 +248,162 @@ async def on_list_faqs(action):
         content += f"*Hinzugefügt am: {date}*\n\n"
         content += "---\n\n"
     
-    await cl.Message(content=content).send()
+    # Hinzufügen eines Buttons zum Löschen aller FAQs
+    msg = cl.Message(content=content)
+    actions = [
+        cl.Action(name="delete_all_faqs", payload={}, label="🗑️ Alle FAQs löschen")
+    ]
+    msg.actions = actions
+    await msg.send()
+
+@cl.action_callback("delete_all_faqs")
+async def on_delete_all_faqs(action):
+    """
+    Callback für die Aktion 'Alle FAQs löschen'.
+    """
+    await action.remove()
+    
+    # Bestätigungsdialog anzeigen
+    confirm_msg = cl.Message(content="⚠️ **Warnung**\n\nSind Sie sicher, dass Sie alle FAQs löschen möchten? Diese Aktion kann nicht rückgängig gemacht werden.")
+    confirm_actions = [
+        cl.Action(name="confirm_delete_all_faqs", payload={}, label="✅ Ja, alle FAQs löschen"),
+        cl.Action(name="cancel_delete_all_faqs", payload={}, label="❌ Nein, abbrechen")
+    ]
+    confirm_msg.actions = confirm_actions
+    await confirm_msg.send()
+
+@cl.action_callback("confirm_delete_all_faqs")
+async def on_confirm_delete_all_faqs(action):
+    """
+    Callback für die Bestätigung zum Löschen aller FAQs.
+    """
+    await action.remove()
+    
+    # Lösche alle FAQs
+    success = await delete_all_faqs_from_database()
+    
+    if success:
+        await cl.Message(content="✅ Alle FAQs wurden erfolgreich gelöscht.").send()
+    else:
+        await cl.Message(content="⚠️ Fehler beim Löschen der FAQs. Bitte versuchen Sie es später erneut.").send()
+
+@cl.action_callback("cancel_delete_all_faqs")
+async def on_cancel_delete_all_faqs(action):
+    """
+    Callback für den Abbruch des Löschvorgangs.
+    """
+    await action.remove()
+    await cl.Message(content="❌ Der Löschvorgang wurde abgebrochen.").send()
+
+async def delete_all_faqs_from_database() -> bool:
+    """
+    Löscht alle FAQs aus der Weaviate-Datenbank.
+    
+    Returns:
+        bool: True bei erfolgreichem Löschen, False sonst
+    """
+    client = None
+    try:
+        # Erstelle einen temporären Weaviate-Client
+        client = create_weaviate_client()
+        logger.info("Temporärer Weaviate-Client für FAQ-Löschung erstellt.")
+        
+        # Stelle sicher, dass der Client verbunden ist
+        if not ensure_weaviate_connection(client):
+            logger.error("Keine Verbindung zu Weaviate möglich.")
+            return False
+        
+        # Prüfe, ob die FAQ-Collection existiert
+        collection_names = client.collections.list_all(simple=True)
+        
+        if "FAQ" not in collection_names:
+            logger.warning("FAQ-Collection existiert nicht, nichts zu löschen.")
+            return True  # Es gibt nichts zu löschen, also gilt der Vorgang als erfolgreich
+        
+        # Hole die FAQ-Collection
+        faq_collection = client.collections.get("FAQ")
+        logger.info("FAQ-Collection abgerufen.")
+        
+        try:
+            # Lösche alle Objekte in der Collection
+            logger.info("Lösche alle FAQ-Objekte...")
+            
+            # Methode 1: Verwende die Batch-Delete-Funktionalität
+            try:
+                # Hole zuerst alle Objekt-IDs
+                response = faq_collection.query.fetch_objects(
+                    limit=1000,  # Setze ein hohes Limit, um alle Objekte zu erfassen
+                    include_vector=False
+                )
+                
+                if hasattr(response, 'objects') and response.objects:
+                    # Sammle alle IDs
+                    ids_to_delete = []
+                    for obj in response.objects:
+                        if hasattr(obj, 'uuid'):
+                            ids_to_delete.append(obj.uuid)
+                    
+                    logger.info(f"Gefundene FAQ-Objekte zum Löschen: {len(ids_to_delete)}")
+                    
+                    # Lösche alle gefundenen Objekte
+                    if ids_to_delete:
+                        for obj_id in ids_to_delete:
+                            faq_collection.data.delete_by_id(obj_id)
+                        logger.info(f"{len(ids_to_delete)} FAQ-Objekte wurden gelöscht.")
+                    
+                    # Prüfe, ob tatsächlich gelöscht wurde
+                    count_result = faq_collection.aggregate.over_all()
+                    remaining_count = 0
+                    if hasattr(count_result, 'total_count'):
+                        remaining_count = count_result.total_count
+                    
+                    if remaining_count == 0:
+                        logger.info("Alle FAQ-Objekte wurden erfolgreich gelöscht.")
+                        return True
+                    else:
+                        logger.warning(f"Es sind noch {remaining_count} FAQ-Objekte übrig.")
+                        # Versuche Alternative, falls Methode 1 nicht alle Objekte gelöscht hat
+                else:
+                    logger.warning("Keine FAQ-Objekte zum Löschen gefunden (Methode 1).")
+            except Exception as e:
+                logger.error(f"Fehler bei Löschmethode 1: {str(e)}")
+            
+            # Methode 2: Alternative - Lösche die Collection und erstelle sie neu
+            try:
+                logger.info("Versuche alternative Löschmethode: Collection löschen und neu erstellen...")
+                
+                # Lösche die Collection
+                client.collections.delete("FAQ")
+                logger.info("FAQ-Collection wurde gelöscht.")
+                
+                # Erstelle die Collection neu
+                from vector_stores.weaviate_client import create_weaviate_schema
+                if create_weaviate_schema(client):
+                    logger.info("FAQ-Collection wurde erfolgreich neu erstellt.")
+                    return True
+                else:
+                    logger.error("Fehler beim Neuerstellen der FAQ-Collection.")
+                    return False
+            except Exception as e:
+                logger.error(f"Fehler bei Löschmethode 2: {str(e)}")
+            
+            return False  # Wenn beide Methoden fehlschlagen
+        except Exception as e:
+            logger.error(f"Fehler beim Löschen der FAQ-Objekte: {str(e)}")
+            return False
+    except Exception as e:
+        logger.error(f"Fehler beim Löschen der FAQs: {str(e)}", exc_info=True)
+        return False
+    finally:
+        # Schließe den Client
+        if client:
+            try:
+                logger.info("Schließe temporären Weaviate-Client für FAQ-Löschung...")
+                client.close()
+                logger.info("Temporärer Weaviate-Client für FAQ-Löschung geschlossen.")
+            except Exception as e:
+                logger.error(f"Fehler beim Schließen des Clients: {str(e)}")
+                pass
 
 async def get_faqs_from_database(limit: int = 10) -> list:
     """
