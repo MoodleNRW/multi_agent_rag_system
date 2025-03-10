@@ -8,6 +8,7 @@ from models.models_wrapper import get_llm
 from langchain.prompts import PromptTemplate
 from pydantic import BaseModel, Field
 from langsmith import traceable
+import time
 
 class QuestionAnswerFromContext(BaseModel):
     """
@@ -35,77 +36,77 @@ async def run_qualtative_answer_workflow(state: PlanExecute):
     # Beispiele für Chain-of-Thought-Reasoning
 
     ## Beispiel 1
-    **Kontext**: Maria ist größer als Jana. Jana ist kleiner als Tom. Tom ist genauso groß wie David.
-    **Frage**: Wer ist die größte Person?
-    **Gedankengang**:
+    Kontext: Maria ist größer als Jana. Jana ist kleiner als Tom. Tom ist gleich groß wie David.
+    Frage: Wer ist die größte Person?
+    Gedankengang:
     Der Kontext sagt uns, dass Maria größer als Jana ist.
-    Es wird auch gesagt, dass Jana kleiner als Tom ist.
-    Und Tom ist genauso groß wie David.
+    Es heißt auch, dass Jana kleiner als Tom ist.
+    Und Tom ist gleich groß wie David.
     Die Reihenfolge von groß nach klein ist also: Maria, Tom/David, Jana.
     Daher muss Maria die größte Person sein.
-    **Antwort**: Maria ist die größte Person.
 
     ## Beispiel 2
-    **Kontext**: Harry las ein Buch über Zaubersprüche. Ein Zauberspruch erlaubte es dem Zauberer, eine Person für kurze Zeit in ein Tier zu verwandeln. Ein anderer Zauberspruch konnte Objekte schweben lassen. Ein dritter Zauberspruch erzeugte ein helles Licht am Ende des Zauberstabs des Zauberers.
-    **Frage**: Was könnte Harry tun, wenn er diese Zaubersprüche anwenden würde?
-    **Gedankengang**:
-    Der Kontext beschreibt drei verschiedene Zaubersprüche.
-    Der erste Zauberspruch ermöglicht es, eine Person vorübergehend in ein Tier zu verwandeln.
-    Der zweite Zauberspruch kann Objekte schweben lassen.
-    Der dritte Zauberspruch erzeugt ein helles Licht.
-    Wenn Harry diese Zaubersprüche anwenden würde, könnte er jemanden für eine Weile in ein Tier verwandeln, Objekte schweben lassen und eine helle Lichtquelle erzeugen.
-    **Antwort**: Basierend auf dem Kontext könnte Harry, wenn er diese Zaubersprüche anwenden würde, Menschen in Tiere verwandeln, Dinge schweben lassen und einen Bereich beleuchten.
+    Kontext: In der Moodle-Dokumentation wird beschrieben, dass Kurse in Kategorien organisiert werden können. Administratoren können Kategorien erstellen und Kursleiter können ihre Kurse in diesen Kategorien platzieren. Außerdem können Kurse verschiedene Formate haben, wie z.B. Wochenformat oder Themenformat.
+    Frage: Wie organisiert Moodle Kurse?
+    Gedankengang:
+    Der Kontext beschreibt, wie Kurse in Moodle organisiert werden.
+    Es wird erwähnt, dass Kurse in Kategorien organisiert werden können.
+    Administratoren können diese Kategorien erstellen.
+    Kursleiter können dann ihre Kurse in diesen Kategorien platzieren.
+    Zusätzlich können Kurse verschiedene Formate haben, wie Wochen- oder Themenformat.
+    Die Antwort ist also: Moodle organisiert Kurse in Kategorien, die von Administratoren erstellt werden, und Kurse können verschiedene Formate wie Wochen- oder Themenformat haben.
 
     ## Beispiel 3
-    **Kontext**: Harry Potter wachte an seinem Geburtstag auf und fand ein Geschenk am Ende seines Bettes. Er öffnete es aufgeregt und fand einen Nimbus 2000 Besen.
-    **Frage**: Warum erhielt Harry einen Besen zum Geburtstag?
-    **Gedankengang**:
-    Der Kontext besagt, dass Harry Potter an seinem Geburtstag aufwachte und ein Geschenk erhielt - einen Nimbus 2000 Besen.
-    Allerdings enthält der Kontext keine Informationen darüber, warum er dieses spezifische Geschenk erhielt oder wer es ihm gab.
-    Es gibt keine Details über Harrys Interessen, Hobbys oder die Motivation des Schenkenden.
-    Ohne zusätzlichen Kontext über Harrys Hintergrund oder die Motivation des Schenkenden gibt es keine Möglichkeit, den Grund zu bestimmen, warum er einen Besen als Geburtstagsgeschenk erhielt.
-    **Antwort**: Basierend auf dem gegebenen Kontext kann ich nicht bestimmen, warum Harry einen Besen zum Geburtstag erhielt. Der Kontext erwähnt nur, dass er einen Nimbus 2000 Besen bekam, aber nicht den Grund dafür oder wer ihn geschenkt hat.
-
-    # Deine Aufgabe
-    Beantworte die folgende Frage, indem du zuerst deinen Gedankengang Schritt für Schritt darlegst und dann eine endgültige Antwort gibst.
-
-    **Kontext**:
+    Kontext: Die Moodle-Plattform wurde 2002 von Martin Dougiamas gegründet.
+    Frage: Wann wurde die Moodle-App für iOS veröffentlicht?
+    Gedankengang:
+    Der Kontext enthält nur Informationen darüber, wann Moodle gegründet wurde (2002) und von wem (Martin Dougiamas).
+    Es gibt keine Informationen darüber, wann die Moodle-App für iOS veröffentlicht wurde.
+    Ohne zusätzlichen Kontext kann diese Frage nicht beantwortet werden.
+    
+    Wende Chain-of-Thought-Reasoning auf die folgende Frage an. Arbeite schrittweise und beantworte die Frage, nur wenn ausreichend Informationen im Kontext vorhanden sind.
+    
+    Kontext:
     {context}
-
-    **Frage**:
+    
+    Frage:
     {question}
-
-    Gib deine Antwort in einem strukturierten Format zurück:
-    - reasoning: Dein ausführlicher Gedankengang zur Beantwortung der Frage
-    - answer_based_on_content: Die endgültige Antwort auf die Frage, basierend auf dem Kontext
     """
     
-    question_answer_from_context_cot_prompt = PromptTemplate(
+    question = state["query_to_retrieve_or_answer"]
+    context = state["curr_context"] if "curr_context" in state else state["aggregated_context"]
+    
+    question_answer_cot_prompt = PromptTemplate(
         template=question_answer_cot_prompt_template,
         input_variables=["context", "question"],
     )
     
-    question_answer_from_context_llm = get_llm(temperature=0)
-    question_answer_from_context_cot_chain = question_answer_from_context_cot_prompt | question_answer_from_context_llm.with_structured_output(
-        QuestionAnswerFromContext, 
+    llm = get_llm(temperature=0)
+    chain = question_answer_cot_prompt | llm.with_structured_output(
+        QuestionAnswerFromContext,
         method="function_calling",
         strict=True
     )
     
-    response = question_answer_from_context_cot_chain.invoke({
-        "context": state["curr_context"],
-        "question": state["query_to_retrieve_or_answer"]
-    })
+    await cl.Message(content=f"Beantworte die Frage mit Chain-of-Thought-Reasoning: '{question}'").send()
     
-    # Speichere sowohl den Gedankengang als auch die Antwort
-    state["reasoning"] = response.reasoning
-    state["response"] = response.answer_based_on_content
+    start_time = time.time()
+    result = chain.invoke({"context": context, "question": question})
+    end_time = time.time()
     
-    # Füge den Gedankengang und die Antwort zum aggregierten Kontext hinzu
-    state["aggregated_context"] += f"\n\nGedankengang:\n{response.reasoning}\n\nGenerierte Antwort:\n{response.answer_based_on_content}"
+    state["answer"] = result.answer_based_on_content
     
-    # Zeige den Gedankengang in der UI an
-    await cl.Message(content=f"🧠 **Gedankengang**:\n\n{response.reasoning}").send()
+    # Zeige den Gedankengang an
+    thought_msg = cl.Message(content=f"**Gedankengang:**\n\n{result.reasoning}")
+    thought_msg.language = "markdown"
+    await thought_msg.send()
+    
+    # Zeige die Antwort an
+    answer_msg = cl.Message(content=f"**Antwort:**\n\n{result.answer_based_on_content}")
+    answer_msg.language = "markdown"
+    await answer_msg.send()
+    
+    await cl.Message(content=f"⏱️ Antwort in {round(end_time - start_time, 2)} Sekunden generiert").send()
     
     return state
 
@@ -113,61 +114,77 @@ async def run_qualtative_answer_workflow(state: PlanExecute):
 @cl.step(name="Generate Final Answer", type="tool")
 async def run_qualtative_answer_workflow_for_final_answer(state: PlanExecute):
     """
-    Generiert eine endgültige Antwort auf die ursprüngliche Frage basierend auf allen gesammelten Informationen.
+    Generiert eine finale Antwort auf die ursprüngliche Frage basierend auf dem gesammelten Kontext.
     
     Args:
         state: Der aktuelle Zustand der Planausführung.
         
     Returns:
-        Der aktualisierte Zustand mit der endgültigen Antwort.
+        Der aktualisierte Zustand mit der generierten Antwort.
     """
     state["curr_state"] = "get_final_answer"
     
-    final_answer_prompt_template = """
-    # Aufgabe: Endgültige Antwort generieren
+    final_answer_cot_prompt_template = """
+    # Finale Antwort generieren
 
-    Basierend auf allen gesammelten Informationen, erstelle eine endgültige, umfassende Antwort auf die ursprüngliche Frage.
-
-    **Ursprüngliche Frage**: 
+    Du bist ein Experte für Moodle und sollst eine fundierte, präzise Antwort auf die Frage geben.
+    
+    Verwende den folgenden strukturierten Ansatz:
+    
+    1. Verstehen der Frage: Analysiere die Frage sorgfältig
+    2. Analyse des Kontexts: Identifiziere alle relevanten Informationen im Kontext
+    3. Bewertung der Informationsqualität: Prüfe, ob der Kontext ausreichend Informationen enthält
+    4. Strukturierte Antwortentwicklung: Baue eine klare, präzise Antwort auf
+    5. Selbstüberprüfung: Stelle sicher, dass die Antwort durch den Kontext gestützt wird
+    
+    Bitte beantworte die folgende Frage, indem du zuerst deinen schrittweisen Denkprozess aufzeigst und dann eine endgültige Antwort formulierst.
+    
+    WICHTIG: Erwähne NICHT, dass du diese Informationen "aus dem Kontext" hast. Formuliere die Antwort, als wärst du ein Moodle-Experte, der direkt antwortet.
+    
+    WICHTIG: Wenn die Frage nicht beantwortet werden kann, erkläre klar, warum nicht und was für Informationen fehlen.
+    
+    Kontext:
+    {context}
+    
+    Frage:
     {question}
-
-    **Gesammelte Informationen**: 
-    {aggregated_context}
-
-    ## Anweisungen:
-    1. Analysiere alle gesammelten Informationen sorgfältig.
-    2. Führe einen strukturierten Gedankengang durch, um die Frage zu beantworten.
-    3. Synthetisiere die Informationen zu einer detaillierten, präzisen und vollständigen Antwort.
-    4. Behalte URLs und Verweise auf die Originalquellen in der Antwort bei.
-    5. Wenn die Informationen nicht ausreichen, um die Frage vollständig zu beantworten, gib an, welche Aspekte nicht beantwortet werden können.
-
-    Gib deine Antwort in einem strukturierten Format zurück:
-    - reasoning: Dein ausführlicher Gedankengang zur Beantwortung der Frage
-    - answer_based_on_content: Die endgültige Antwort auf die Frage, basierend auf allen gesammelten Informationen
     """
     
-    final_answer_prompt = PromptTemplate(
-        template=final_answer_prompt_template,
-        input_variables=["question", "aggregated_context"],
+    question = state["question"]  # Die ursprüngliche Frage verwenden
+    context = state["aggregated_context"]
+    
+    final_answer_cot_prompt = PromptTemplate(
+        template=final_answer_cot_prompt_template,
+        input_variables=["context", "question"],
     )
     
-    final_answer_llm = get_llm(temperature=0)
-    final_answer_chain = final_answer_prompt | final_answer_llm.with_structured_output(
-        QuestionAnswerFromContext, 
+    llm = get_llm(temperature=0)
+    chain = final_answer_cot_prompt | llm.with_structured_output(
+        QuestionAnswerFromContext,
         method="function_calling",
         strict=True
     )
     
-    response = final_answer_chain.invoke({
-        "question": state["question"],
-        "aggregated_context": state["aggregated_context"]
-    })
+    await cl.Message(content=f"🎯 Generiere finale Antwort auf die ursprüngliche Frage: '{question}'").send()
     
-    # Speichere sowohl den Gedankengang als auch die Antwort
-    state["final_reasoning"] = response.reasoning
-    state["response"] = response.answer_based_on_content
+    start_time = time.time()
+    result = chain.invoke({"context": context, "question": question})
+    end_time = time.time()
     
-    # Zeige den Gedankengang in der UI an
-    await cl.Message(content=f"🧠 **Finaler Gedankengang**:\n\n{response.reasoning}").send()
+    state["response"] = result.answer_based_on_content
+    
+    # Zeige den Gedankengang intern
+    thought_msg = cl.Message(content=f"**Interner Gedankengang:**\n\n{result.reasoning}")
+    #thought_msg.language = "markdown"
+    thought_msg.type = "system"
+    await thought_msg.send()
+    
+    # Zeige die finale Antwort mit besonderer Formatierung
+    answer_msg = cl.Message(content=result.answer_based_on_content)
+    answer_msg.language = "Antwort"
+    answer_msg.parent_id = None
+    await answer_msg.send()
+    
+    await cl.Message(content=f"⏱️ Finale Antwort in {round(end_time - start_time, 2)} Sekunden generiert").send()
     
     return state

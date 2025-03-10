@@ -11,6 +11,10 @@ import logging
 import asyncio
 from vector_stores.retriever import ensure_global_client
 from ui.faq_ui import search_faq_database, show_save_to_faq_option
+from pydantic import BaseModel, Field
+from langchain.prompts import PromptTemplate
+from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.runnables import RunnableParallel
 
 dotenv.load_dotenv()
 API_KEY = os.getenv('OPENAI_API_KEY')
@@ -37,16 +41,16 @@ async def run_faq_check_workflow(state: PlanExecute):
     await cl.Message(content="🔍 Überprüfe FAQ-Datenbank...").send()
     
     try:
-        # Suche in der FAQ-Datenbank mit hohem Ähnlichkeitsschwellenwert
-        faqs = await search_faq_database(query, similarity_threshold=0.65, limit=2)
+        # Suche in der FAQ-Datenbank mit SEHR hohem Ähnlichkeitsschwellenwert
+        faqs = await search_faq_database(query, similarity_threshold=0.85, limit=2)
         
         # Filtern und Prüfen auf relevante Inhalte
         relevant_faqs = []
         if faqs:
             for faq in faqs:
                 similarity = faq.get('similarity', 0)
-                # Zusätzliche Relevanzprüfung
-                if similarity >= 0.65:
+                # Zusätzliche Relevanzprüfung mit strengem Schwellenwert
+                if similarity >= 0.85:
                     relevant_faqs.append(faq)
                     logger.info(f"Relevante FAQ gefunden mit Ähnlichkeit: {similarity}")
         
@@ -62,10 +66,11 @@ async def run_faq_check_workflow(state: PlanExecute):
             # Aktualisiere den Zustand mit relevanten Informationen
             state["curr_context"] = response
             state["aggregated_context"] = response
-            state["response"] = response
             
             # Informiere den Benutzer
-            await cl.Message(content=f"✅ Passende FAQ gefunden (Ähnlichkeit: {similarity:.2%})").send()
+            await cl.Message(content=f"⚠️ Mögliche passende FAQ gefunden (Ähnlichkeit: {similarity:.2%})").send()
+            await cl.Message(content=f"Falls die Antwort nicht hilfreich ist, werde ich auch in der Dokumentation suchen.").send()
+            await cl.Message(content=response).send()
             
             try:
                 # Zeige FAQ-Speicheroption für die Frage an - fange Fehler ab, falls diese Funktion fehlschlägt
@@ -74,9 +79,9 @@ async def run_faq_check_workflow(state: PlanExecute):
                 logger.error(f"Fehler beim Anzeigen der FAQ-Speicheroption: {str(e)}")
                 # Fahre fort, auch wenn die Speicheroption nicht angezeigt werden kann
             
-            # WICHTIG: Nicht direkt zu answer gehen, sondern den normalen Workflow-Pfad durchlaufen,
-            # der den Relevanzcheck einschließt
-            state["tool"] = "task_handler"
+            # Wir gehen nicht direkt zur Antwort, sondern fügen die FAQ-Antwort zum Kontext hinzu
+            # und lassen den normalen Workflow weiterlaufen
+            state["tool"] = "parallel_retrieval"
             return state
         
         # Keine passende FAQ gefunden
@@ -345,3 +350,51 @@ async def run_parallel_retrieval_workflow(state: PlanExecute):
     await cl.Message(content=f"Parallele Retrieval-Methoden abgeschlossen. Kombinierte {len(chunks_context) + len(summaries_context) + len(quotes_context)} Zeichen an Kontext.").send()
     
     return state
+
+async def check_content_grounding(distilled_content, original_context):
+    """
+    Überprüft, ob der gefilterte Inhalt im ursprünglichen Kontext verankert ist.
+    
+    Args:
+        distilled_content: Der gefilterte Inhalt.
+        original_context: Der ursprüngliche Kontext.
+    
+    Returns:
+        Boolean: True, wenn der Inhalt verankert ist, sonst False.
+    """
+    # Falls der Inhalt leer ist, ist er per Definition verankert
+    if not distilled_content.strip():
+        return True
+    
+    class IsGrounded(BaseModel):
+        grounded: bool = Field(description="Gibt an, ob der gefilterte Inhalt im ursprünglichen Kontext verankert ist.")
+        explanation: str = Field(description="Erläuterung, warum der Inhalt verankert ist oder nicht.")
+    
+    prompt_template = """Du erhältst gefilterten Inhalt: {distilled_content} und den ursprünglichen Kontext: {original_context}.
+    Prüfe, ob der gefilterte Inhalt tatsächlich im ursprünglichen Kontext verankert ist.
+    Der gefilterte Inhalt sollte keine Informationen enthalten, die nicht zumindest sinngemäß im ursprünglichen Kontext vorhanden sind.
+    
+    Setze 'grounded' auf true, wenn der Inhalt vollständig im Kontext verankert ist.
+    Setze 'grounded' auf false, wenn der Inhalt Informationen enthält, die nicht im Kontext enthalten sind.
+    """
+    
+    prompt = PromptTemplate(
+        template=prompt_template,
+        input_variables=["distilled_content", "original_context"],
+    )
+    
+    from models.models_wrapper import get_llm
+    llm = get_llm(temperature=0)
+    chain = prompt | llm.with_structured_output(
+        IsGrounded, 
+        method="function_calling",
+        strict=True
+    )
+    
+    input_data = {
+        "distilled_content": distilled_content,
+        "original_context": original_context
+    }
+    
+    result = chain.invoke(input_data)
+    return result.grounded

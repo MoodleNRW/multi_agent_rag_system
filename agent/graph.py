@@ -18,7 +18,8 @@ from .retriever import (
     run_qualitative_summaries_retrieval_workflow,
     run_qualitative_quotes_retrieval_workflow,
     run_parallel_retrieval_workflow,
-    run_faq_check_workflow
+    run_faq_check_workflow,
+    check_content_grounding
 )
 from .tools import run_moodle_tool_workflow
 from .answerer import run_qualtative_answer_workflow, run_qualtative_answer_workflow_for_final_answer
@@ -26,6 +27,10 @@ from .verifier import can_be_answered
 from .hallucination_checker import is_answer_grounded_on_context
 from .relevance_checker import is_relevant_content
 
+    # Definiere das Output-Schema
+class KeepRelevantContent(BaseModel):
+    relevant_content: str = Field(description="Der relevante Inhalt aus den abgerufenen Dokumenten, der für die Anfrage relevant ist.")
+    
 # Neuer gemeinsamer Node für die Relevanzprüfung nach dem Retrieval
 @traceable(pass_config=False)
 @cl.step(name="Keep Only Relevant Content", type="process")
@@ -58,10 +63,6 @@ async def keep_only_relevant_content(state: PlanExecute):
         input_variables=["query", "retrieved_documents"],
     )
     
-    # Definiere das Output-Schema
-    class KeepRelevantContent(BaseModel):
-        relevant_content: str = Field(description="Der relevante Inhalt aus den abgerufenen Dokumenten, der für die Anfrage relevant ist.")
-    
     keep_only_relevant_content_llm = get_llm(temperature=0)
     keep_only_relevant_content_chain = keep_only_relevant_content_prompt | keep_only_relevant_content_llm.with_structured_output(
         KeepRelevantContent, 
@@ -79,6 +80,37 @@ async def keep_only_relevant_content(state: PlanExecute):
     await cl.Message(content=f"Behalte nur relevante Inhalte für die Anfrage: '{question}'").send()
     output = keep_only_relevant_content_chain.invoke(input_data)
     relevant_content = output.relevant_content
+    
+    # Prüfe, ob der relevante Inhalt im ursprünglichen Kontext verankert ist
+    is_grounded = await check_content_grounding(relevant_content, context)
+    
+    # Wenn der Inhalt nicht verankert ist, wiederholen wir die Anfrage mit einem angepassten Prompt
+    if not is_grounded and relevant_content.strip():
+        await cl.Message(content="Der gefilterte Inhalt enthält möglicherweise nicht im Original enthaltene Informationen. Versuche erneut zu filtern...").send()
+        
+        # Modifiziertes Prompt für strengere Filterung
+        stricter_prompt_template = """Du erhältst eine Anfrage: {query} und abgerufene Dokumente: {retrieved_documents} aus einem Vektorspeicher.
+        WICHTIG: Deine Ausgabe darf AUSSCHLIESSLICH Informationen enthalten, die wortwörtlich oder sinngemäß in den abgerufenen Dokumenten vorhanden sind.
+        
+        Filtere alle nicht relevanten Informationen heraus, die keine wichtigen Informationen zur {query} liefern.
+        Du kannst Teile von Sätzen oder ganze Sätze entfernen, die nicht relevant für die Anfrage sind.
+        Stelle sicher, dass jede Information in deiner Ausgabe direkt aus den abgerufenen Dokumenten stammt.
+        Gib nur den gefilterten relevanten Inhalt aus.
+        """
+        
+        stricter_prompt = PromptTemplate(
+            template=stricter_prompt_template,
+            input_variables=["query", "retrieved_documents"],
+        )
+        
+        stricter_chain = stricter_prompt | keep_only_relevant_content_llm.with_structured_output(
+            KeepRelevantContent, 
+            method="function_calling",
+            strict=True
+        )
+        
+        output = stricter_chain.invoke(input_data)
+        relevant_content = output.relevant_content
     
     # Speichere den gefilterten Inhalt im Zustand
     if not "aggregated_context" in state or state["aggregated_context"] == "":
@@ -125,9 +157,11 @@ async def create_agent_graph():
     agent_workflow.add_node("parallel_retrieval", run_parallel_retrieval_workflow)
     agent_workflow.add_node("call_moodle_tool", run_moodle_tool_workflow)
     agent_workflow.add_node("answer", run_qualtative_answer_workflow)
+    agent_workflow.add_node("get_final_answer", run_qualtative_answer_workflow_for_final_answer)
+    agent_workflow.add_node("rewrite_question", rewrite_question)
+    agent_workflow.add_node("check_hallucination", check_answer_hallucination)
     agent_workflow.add_node("keep_only_relevant_content", keep_only_relevant_content)
     agent_workflow.add_node("replan", replan_step)
-    agent_workflow.add_node("get_final_answer", run_qualtative_answer_workflow_for_final_answer)
     agent_workflow.add_node("decide_faq_path", decide_faq_path)
 
     # Set entry point
@@ -149,7 +183,7 @@ async def create_agent_graph():
             "chosen_tool_is_retrieve_summaries": "retrieve_summaries",
             "chosen_tool_is_retrieve_quotes": "retrieve_quotes",
             "chosen_tool_is_parallel_retrieval": "parallel_retrieval",
-            "chose_tool_is_create_moodle_course": "call_moodle_tool",
+            "chosen_tool_is_create_moodle_course": "call_moodle_tool",
             "chosen_tool_is_answer": "answer"
         }
     )
@@ -160,19 +194,22 @@ async def create_agent_graph():
         lambda x: x["relevance_status"],
         {
             "grounded_on_the_original_context": "replan",
-            "not_grounded_on_the_original_context": "task_handler"
+            "not_grounded_on_the_original_context": "rewrite_question"
         }
     )
 
-    # Ändere die Halluzinationsprüfung, um auf denselben Antwortknoten zurückzukehren
+    # Ändere die Halluzinationsprüfung, um den neuen check_hallucination-Knoten zu nutzen
     agent_workflow.add_conditional_edges(
         "answer",
-        is_answer_grounded_on_context,
+        check_answer_hallucination,
         {
-            "grounded_on_context": END,
-            "hallucination": "replan"
+            "grounded_on_context": "replan",
+            "hallucination": "rewrite_question"
         }
     )
+
+    # Kante vom rewrite_question zurück zum task_handler
+    agent_workflow.add_edge("rewrite_question", "task_handler")
 
     agent_workflow.add_edge("call_moodle_tool", "replan")
 
@@ -189,7 +226,7 @@ async def create_agent_graph():
     # Add conditional edges for final answer hallucination check
     agent_workflow.add_conditional_edges(
         "get_final_answer",
-        is_answer_grounded_on_context,
+        check_answer_hallucination,
         {
             "grounded_on_context": END,
             "hallucination": "replan"
@@ -206,7 +243,7 @@ async def create_agent_graph():
             "back_to_task_handler": "task_handler"
         }
     )
-    
+
     # Neue einheitliche Kanten für das Retrieval
     agent_workflow.add_edge("retrieve_chunks", "keep_only_relevant_content")
     agent_workflow.add_edge("retrieve_summaries", "keep_only_relevant_content")
@@ -390,6 +427,15 @@ async def retrieve_or_answer(state: PlanExecute):
     if state["curr_state"] == "answer":
         return "chosen_tool_is_answer"
     
+    # Verhindere Endlosschleifen bei check_faq-Aufrufen
+    # Wenn die vorherige Funktion check_faq war, sollten wir nicht wieder dorthin gehen
+    if state["tool"] == "check_faq" and state.get("prev_tool") == "check_faq":
+        # Stattdessen zum parallelen Retrieval wechseln
+        state["tool"] = "parallel_retrieval"
+        
+    # Merke uns die aktuelle tool-Einstellung für die nächste Entscheidung
+    state["prev_tool"] = state["tool"]
+    
     if state["tool"] == "check_faq":
         return "chosen_tool_is_check_faq"
     elif state["tool"] == "retrieve_chunks":
@@ -401,23 +447,151 @@ async def retrieve_or_answer(state: PlanExecute):
     elif state["tool"] == "parallel_retrieval":
         return "chosen_tool_is_parallel_retrieval"
     elif state["tool"] == "create_moodle_course":
-        return "chose_tool_is_create_moodle_course"
+        return "chosen_tool_is_create_moodle_course"
     elif state["tool"] == "answer":
         return "chosen_tool_is_answer"
     else:
-        raise ValueError("Invalid tool was outputed. Must be either 'check_faq', 'retrieve_chunks', 'retrieve_summaries', 'retrieve_quotes', 'parallel_retrieval', 'create_moodle_course' or 'answer'")  
+        raise ValueError("Invalid tool was outputed. Must be either 'check_faq', 'retrieve_chunks', 'retrieve_summaries', 'retrieve_quotes', 'parallel_retrieval', 'create_moodle_course' or 'answer'")
 
 # Füge eine Funktion hinzu, um zu entscheiden, welchen Pfad wir von check_faq aus nehmen
 @cl.step(name="Decide FAQ Path", type="process")
 async def decide_faq_path(state: PlanExecute):
     """Entscheidet, ob wir direkt zur Antwort gehen oder zum Task Handler zurückkehren.
+    
     Args:
         state: Der aktuelle Zustand der Plan-Ausführung.
     Returns:
         Der aktualisierte Zustand mit einem Routing-Attribut.
     """
+    # Verhindere Endlosschleifen
+    if state.get("faq_check_count", 0) > 0:
+        # Wenn wir bereits einmal FAQ überprüft haben, gehen wir direkt zum task_handler
+        # mit dem Befehl, parallel_retrieval zu verwenden
+        state["tool"] = "parallel_retrieval"
+        state["routing"] = "back_to_task_handler"
+        return state
+    
+    # Erhöhe den Zähler für FAQ-Überprüfungen
+    state["faq_check_count"] = state.get("faq_check_count", 0) + 1
+    
     # Füge ein Routing-Attribut zum Zustand hinzu
     state["routing"] = "direct_to_answer" if state.get("direct_to_answer", False) else "back_to_task_handler"
     
     # Gib den vollständigen Zustand zurück
+    return state
+
+class IsGroundedOnFacts(BaseModel):
+    """Ergebnis der Faktenüberprüfung."""
+    grounded_on_facts: bool = Field(description="Antwort basiert auf Fakten, 'ja' oder 'nein'")
+
+async def check_answer_hallucination(state: PlanExecute):
+    """
+    Überprüft, ob die generierte Antwort auf den gegebenen Fakten basiert oder eine Halluzination ist.
+    
+    Args:
+        state: Der aktuelle Zustand der Plan-Ausführung.
+    Returns:
+        "hallucination", wenn die Antwort nicht auf Fakten basiert, sonst "grounded_on_context".
+    """
+    state["curr_state"] = "check_hallucination"
+    
+    answer = state["response"] if "response" in state else state["answer"]
+    context = state["aggregated_context"] if "aggregated_context" in state else state["context"]
+    
+    await cl.Message(content="Überprüfe, ob die Antwort auf den gegebenen Fakten basiert...").send()
+    
+    # Prompt für die Überprüfung der Faktenbasiertheit
+    hallucination_check_prompt_template = """Du bist ein Faktenprüfer, der bestimmt, ob die gegebene Antwort {answer} 
+    auf dem gegebenen Kontext {context} basiert.
+    Es spielt keine Rolle, ob es logisch erscheint, solange es im Kontext verankert ist.
+    Ausgabe als JSON mit der Antwort auf die Frage.
+    """
+    
+    hallucination_check_prompt = PromptTemplate(
+        template=hallucination_check_prompt_template,
+        input_variables=["context", "answer"],
+    )
+    
+    # LLM-Modell für die Faktenprüfung
+    hallucination_check_llm = get_llm(temperature=0)
+    hallucination_check_chain = hallucination_check_prompt | hallucination_check_llm.with_structured_output(
+        IsGroundedOnFacts,
+        method="function_calling",
+        strict=True
+    )
+    
+    # Invoke the chain
+    input_data = {
+        "context": context,
+        "answer": answer
+    }
+    
+    result = hallucination_check_chain.invoke(input_data)
+    grounded = result.grounded_on_facts
+    
+    if not grounded:
+        await cl.Message(content="⚠️ Die Antwort scheint eine Halluzination zu sein und ist nicht vollständig durch den Kontext gestützt.").send()
+        return "hallucination"
+    else:
+        await cl.Message(content="✅ Die Antwort basiert auf den verfügbaren Fakten.").send()
+        return "grounded_on_context"  
+
+class RewrittenQuestion(BaseModel):
+    """Schema für die umgeschriebene Frage."""
+    rewritten_question: str = Field(description="Die verbesserte Frage, optimiert für Vektorsuche.")
+    explanation: str = Field(description="Die Erklärung der umgeschriebenen Frage.")
+
+async def rewrite_question(state: PlanExecute):
+    """
+    Schreibt die gegebene Frage neu, um bessere Suchergebnisse zu erzielen.
+    
+    Args:
+        state: Der aktuelle Zustand der Plan-Ausführung.
+    Returns:
+        Der aktualisierte Zustand mit der umgeschriebenen Frage.
+    """
+    state["curr_state"] = "rewrite_question"
+    
+    question = state["question"] if "query_to_retrieve_or_answer" not in state else state["query_to_retrieve_or_answer"]
+    
+    await cl.Message(content=f"Schreibe die Frage um, um bessere Suchergebnisse zu erzielen: '{question}'").send()
+    
+    # Prompt für die Umschreibung der Frage
+    rewrite_prompt_template = """Du bist ein Frageumschreiber, der eine Eingabefrage in eine bessere Version 
+    umwandelt, die für die Vektorsuche optimiert ist.
+    Analysiere die Eingabefrage {question} und versuche, die zugrunde liegende semantische Absicht/Bedeutung zu verstehen.
+    
+    Die umgeschriebene Frage sollte:
+    1. Relevante Schlüsselwörter enthalten
+    2. Präziser sein als die Originalfrage
+    3. Ambiguitäten auflösen
+    4. Auf die wichtigsten Informationsbedürfnisse fokussieren
+    
+    Gib eine verbesserte Version der Frage und eine Erklärung zurück, warum du die Änderungen vorgenommen hast.
+    """
+    
+    rewrite_prompt = PromptTemplate(
+        template=rewrite_prompt_template,
+        input_variables=["question"],
+    )
+    
+    # LLM-Modell für die Fragenumschreibung
+    rewrite_llm = get_llm(temperature=0)
+    rewrite_chain = rewrite_prompt | rewrite_llm.with_structured_output(
+        RewrittenQuestion,
+        method="function_calling",
+        strict=True
+    )
+    
+    # Invoke the chain
+    result = rewrite_chain.invoke({"question": question})
+    
+    # Update the state with the rewritten question
+    new_question = result.rewritten_question
+    explanation = result.explanation
+    
+    state["query_to_retrieve_or_answer"] = new_question
+    
+    await cl.Message(content=f"Umgeschriebene Frage: '{new_question}'\nBegründung: {explanation}").send()
+    
     return state  
