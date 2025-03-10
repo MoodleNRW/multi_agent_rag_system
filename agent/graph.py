@@ -239,7 +239,7 @@ async def create_agent_graph():
         "decide_faq_path",
         lambda x: x["routing"],
         {
-            "direct_to_answer": "answer",
+            "direct_to_answer": END,
             "back_to_task_handler": "task_handler"
         }
     )
@@ -318,11 +318,12 @@ async def break_down_plan_step(state: PlanExecute):
     break_down_plan_prompt_template = """You receive a plan {plan} which contains a series of steps to follow in order to answer a query. 
     You need to go through the plan and refine it according to these criteria:
     1. Every step has to be able to be executed by either:
-        i. retrieving relevant information from a vector store of chunks
-        ii. retrieving relevant information from a vector store of chapter summaries
-        iii. retrieving relevant information from a vector store of quotes
-        iv. answering a question from a given context.
-        v. creating a moodle course.
+        i. checking the FAQ database for a matching answer
+        ii. retrieving relevant information from a vector store of chunks
+        iii. retrieving relevant information from a vector store of chapter summaries
+        iv. retrieving relevant information from a vector store of quotes
+        v. answering a question from a given context.
+        vi. creating a moodle course.
     2. Every step should contain all the information needed to execute it.
     3. Break down any step that is too broad or complex into multiple, more specific steps.
     4. Ensure that the steps are in a logical order and build upon each other.
@@ -477,6 +478,8 @@ async def decide_faq_path(state: PlanExecute):
     # Füge ein Routing-Attribut zum Zustand hinzu
     state["routing"] = "direct_to_answer" if state.get("direct_to_answer", False) else "back_to_task_handler"
     
+    if state["routing"] == "direct_to_answer":
+        await cl.Message(content=state["response"]).send()
     # Gib den vollständigen Zustand zurück
     return state
 

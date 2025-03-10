@@ -582,14 +582,16 @@ async def search_faq_database(query: str, similarity_threshold: float = 0.7, lim
             
             # Hole die FAQ-Collection
             faq_collection = weaviate_client.collections.get("FAQ")
-            
             # Führe semantische Suche durch - genau wie bei Chunks/Summaries/Quotes
-            results = faq_collection.query.near_text(
+            results = faq_collection.query.hybrid(
                 query=query,
                 limit=limit,
-                return_metadata=wvc.query.MetadataQuery(distance=True),
+                query_properties=["question"],
+                return_metadata=wvc.query.MetadataQuery(score=True),
                 return_properties=["question", "answer", "date"]
             )
+
+            print(f"Results: {results}")
             
             # Extrahiere die Ergebnisse
             faqs = []
@@ -597,10 +599,8 @@ async def search_faq_database(query: str, similarity_threshold: float = 0.7, lim
                 for obj in results.objects:
                     # Berechne Ähnlichkeit aus Distanz
                     similarity = 0
-                    if hasattr(obj, 'metadata') and hasattr(obj.metadata, 'distance'):
-                        distance = obj.metadata.distance
-                        if distance is not None:
-                            similarity = 1.0 - distance
+                    if hasattr(obj, 'metadata') and hasattr(obj.metadata, 'score'):
+                        similarity = obj.metadata.score
                     
                     # Nur Ergebnisse mit ausreichender Ähnlichkeit verwenden
                     if similarity >= similarity_threshold:

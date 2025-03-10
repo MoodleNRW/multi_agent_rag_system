@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 @traceable(pass_config=False)
-@cl.step(name="Check FAQ", type="tool")
+@cl.step(name="Check FAQ", type="process")
 async def run_faq_check_workflow(state: PlanExecute):
     """
     Überprüft zuerst die FAQ-Datenbank auf eine passende Antwort.
@@ -40,10 +40,13 @@ async def run_faq_check_workflow(state: PlanExecute):
     logger.info(f"Überprüfe FAQ-Datenbank für Anfrage: {query}")
     await cl.Message(content="🔍 Überprüfe FAQ-Datenbank...").send()
     
+    # Schwellenwert für direkten Wechsel zur Antwort
+    DIRECT_ANSWER_THRESHOLD = 0.90
+    
     try:
         # Suche in der FAQ-Datenbank mit SEHR hohem Ähnlichkeitsschwellenwert
-        faqs = await search_faq_database(query, similarity_threshold=0.85, limit=2)
-        
+        faqs = await search_faq_database(query, limit=2)
+        await cl.Message(content=f"FAQ-Datenbank durchsucht. {len(faqs)} relevante FAQs gefunden.").send()
         # Filtern und Prüfen auf relevante Inhalte
         relevant_faqs = []
         if faqs:
@@ -66,11 +69,7 @@ async def run_faq_check_workflow(state: PlanExecute):
             # Aktualisiere den Zustand mit relevanten Informationen
             state["curr_context"] = response
             state["aggregated_context"] = response
-            
-            # Informiere den Benutzer
-            await cl.Message(content=f"⚠️ Mögliche passende FAQ gefunden (Ähnlichkeit: {similarity:.2%})").send()
-            await cl.Message(content=f"Falls die Antwort nicht hilfreich ist, werde ich auch in der Dokumentation suchen.").send()
-            await cl.Message(content=response).send()
+            state["response"] = best_faq['answer']
             
             try:
                 # Zeige FAQ-Speicheroption für die Frage an - fange Fehler ab, falls diese Funktion fehlschlägt
@@ -79,10 +78,29 @@ async def run_faq_check_workflow(state: PlanExecute):
                 logger.error(f"Fehler beim Anzeigen der FAQ-Speicheroption: {str(e)}")
                 # Fahre fort, auch wenn die Speicheroption nicht angezeigt werden kann
             
-            # Wir gehen nicht direkt zur Antwort, sondern fügen die FAQ-Antwort zum Kontext hinzu
-            # und lassen den normalen Workflow weiterlaufen
-            state["tool"] = "parallel_retrieval"
-            return state
+            # Entscheide basierend auf der Ähnlichkeit, ob direkt zur Antwort gesprungen wird
+            print(f"Similarity: {similarity}")
+            if similarity >= DIRECT_ANSWER_THRESHOLD:
+                # Bei sehr hoher Ähnlichkeit direkt zur Antwort springen
+                print("XXX sim")
+                await cl.Message(content=f"✅ Exakte Übereinstimmung in den FAQs gefunden (Ähnlichkeit: {similarity:.2%})").send()
+                await cl.Message(content="Da die Frage fast identisch zu einer bekannten FAQ ist, gebe ich direkt die Antwort.").send()
+                await cl.Message(content=best_faq.get("answer")).send()
+                state["response"] = best_faq.get("answer")
+
+                # Setze den Zustand auf direkte Antwort
+                state["direct_to_answer"] = True
+                state["tool"] = "answer"
+                return state
+            else:
+                # Bei moderater Ähnlichkeit, trotzdem in der Dokumentation suchen
+                await cl.Message(content=f"⚠️ Mögliche passende FAQ gefunden (Ähnlichkeit: {similarity:.2%})").send()
+                await cl.Message(content=f"Da die Ähnlichkeit nicht extrem hoch ist, werde ich zur Sicherheit auch in der Dokumentation suchen.").send()
+                await cl.Message(content=response).send()
+                
+                # Setze auf paralleles Retrieval als nächsten Schritt
+                state["tool"] = "parallel_retrieval"
+                return state
         
         # Keine passende FAQ gefunden
         logger.info("Keine ausreichend relevante FAQ gefunden, fahre mit normaler Suche fort")
@@ -138,9 +156,9 @@ async def run_qualitative_chunks_retrieval_workflow(state: PlanExecute):
     try:
         # Verwende die korrekte API für die Abfrage (v4)
         content_chunk_collection = weaviate_client.collections.get("Content_chunk")
-        query_result = content_chunk_collection.query.near_text(
+        query_result = content_chunk_collection.query.hybrid(
             query=query,
-            limit=4,
+            limit=5,
             return_metadata=wvc.query.MetadataQuery(distance=True),
             return_properties=["url", "content_chunk"]
         )
@@ -203,7 +221,7 @@ async def run_qualitative_summaries_retrieval_workflow(state: PlanExecute):
     try:
         # Verwende die korrekte API für die Abfrage (v4)
         content_summary_collection = weaviate_client.collections.get("Content_summary")
-        query_result = content_summary_collection.query.near_text(
+        query_result = content_summary_collection.query.hybrid(
             query=query,
             limit=4,
             return_metadata=wvc.query.MetadataQuery(distance=True),
@@ -268,9 +286,9 @@ async def run_qualitative_quotes_retrieval_workflow(state: PlanExecute):
     try:
         # Verwende die korrekte API für die Abfrage (v4)
         quote_collection = weaviate_client.collections.get("Quote")
-        query_result = quote_collection.query.near_text(
+        query_result = quote_collection.query.hybrid(
             query=query,
-            limit=4,
+            limit=10,
             return_metadata=wvc.query.MetadataQuery(distance=True),
             return_properties=["url", "content", "source", "title"]
         )

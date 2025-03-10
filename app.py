@@ -188,7 +188,7 @@ async def process_message(message_content: str):
     await start_evaluation(message_content)
     
     # Führe den Workflow aus
-    config = {"recursion_limit": 25}
+    config = {"recursion_limit": 35}
     step_output = None
     astream_generator = None
     
