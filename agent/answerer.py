@@ -127,7 +127,7 @@ async def run_qualtative_answer_workflow_for_final_answer(state: PlanExecute):
     final_answer_cot_prompt_template = """
     # Finale Antwort generieren
 
-    Du bist ein Experte für Moodle und sollst eine fundierte, präzise Antwort auf die Frage geben.
+    Du bist ein Experte im Bereich Support und sollst eine fundierte, präzise Antwort auf die Frage geben.
     
     Verwende den folgenden strukturierten Ansatz:
     
@@ -139,10 +139,10 @@ async def run_qualtative_answer_workflow_for_final_answer(state: PlanExecute):
     
     Bitte beantworte die folgende Frage, indem du zuerst deinen schrittweisen Denkprozess aufzeigst und dann eine endgültige Antwort formulierst.
     
-    WICHTIG: Erwähne NICHT, dass du diese Informationen "aus dem Kontext" hast. Formuliere die Antwort, als wärst du ein Moodle-Experte, der direkt antwortet.
-    
+    WICHTIG: Erwähne NICHT, dass du diese Informationen "aus dem Kontext" hast. Formuliere die Antwort, als wärst du ein Support-Experte, der direkt antwortet.
+    WICHTIG: Mögliche Quellen wie Links sollst du in der Antwort erwähnen.
     WICHTIG: Wenn die Frage nicht beantwortet werden kann, erkläre klar, warum nicht und was für Informationen fehlen.
-    
+    WICHTIG: Falls im Kontext nur Daten aus der FAQ vorhanden sind, übernehme die Antwort aus der FAQ.
     Kontext:
     {context}
     

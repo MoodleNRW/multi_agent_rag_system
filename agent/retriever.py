@@ -87,10 +87,9 @@ async def run_faq_check_workflow(state: PlanExecute):
                 await cl.Message(content="Da die Frage fast identisch zu einer bekannten FAQ ist, gebe ich direkt die Antwort.").send()
                 await cl.Message(content=best_faq.get("answer")).send()
                 state["response"] = best_faq.get("answer")
-
-                # Setze den Zustand auf direkte Antwort
-                state["direct_to_answer"] = True
+                #state["direct_to_answer"] = True
                 state["tool"] = "answer"
+                #TODO embedding similarity check answer and question
                 return state
             else:
                 # Bei moderater Ähnlichkeit, trotzdem in der Dokumentation suchen
@@ -159,10 +158,11 @@ async def run_qualitative_chunks_retrieval_workflow(state: PlanExecute):
         query_result = content_chunk_collection.query.hybrid(
             query=query,
             limit=5,
-            return_metadata=wvc.query.MetadataQuery(distance=True),
+            return_metadata=wvc.query.MetadataQuery(score=True),
             return_properties=["url", "content_chunk"]
         )
         
+        print(f"Query Result: {query_result}")
         docs = query_result.objects
         
         # Filter out empty content
@@ -224,10 +224,11 @@ async def run_qualitative_summaries_retrieval_workflow(state: PlanExecute):
         query_result = content_summary_collection.query.hybrid(
             query=query,
             limit=4,
-            return_metadata=wvc.query.MetadataQuery(distance=True),
+            return_metadata=wvc.query.MetadataQuery(score=True),
             return_properties=["url", "content_summary"]
         )
         
+        print(f"Query Result: {query_result}"   )
         docs = query_result.objects
         
         # Filter out empty content
@@ -289,10 +290,11 @@ async def run_qualitative_quotes_retrieval_workflow(state: PlanExecute):
         query_result = quote_collection.query.hybrid(
             query=query,
             limit=10,
-            return_metadata=wvc.query.MetadataQuery(distance=True),
+            return_metadata=wvc.query.MetadataQuery(score=True),
             return_properties=["url", "content", "source", "title"]
         )
         
+        print(f"Query Result: {query_result}")
         docs = query_result.objects
         
         # Filter out empty content and only include quotes or definitions

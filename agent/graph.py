@@ -239,7 +239,7 @@ async def create_agent_graph():
         "decide_faq_path",
         lambda x: x["routing"],
         {
-            "direct_to_answer": END,
+            "direct_to_answer": "replan",
             "back_to_task_handler": "task_handler"
         }
     )
