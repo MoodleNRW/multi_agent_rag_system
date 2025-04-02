@@ -2,7 +2,7 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_weaviate.vectorstores import WeaviateVectorStore
 import weaviate
 import logging
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict
 import os
 import dotenv
 from . import weaviate_client
@@ -17,6 +17,8 @@ API_KEY = os.getenv('OPENAI_API_KEY')
 
 # Globaler Client für die gesamte Anwendung
 global_client = None
+# Globales Dictionary für Retriever
+global_retrievers: Optional[Dict[str, object]] = None
 
 def ensure_global_client():
     """
@@ -54,29 +56,61 @@ class KeepAliveWeaviateVectorStore(WeaviateVectorStore):
     def _select_relevance_score_fn(self):
         """Überschreibe diese Methode, um sie mit der Verbindungsprüfung zu erweitern."""
         # Stelle sicher, dass der Client verbunden ist, bevor wir ihn verwenden
-        if not self.client.is_connected():
+        if not self._client.is_connected():
             logger.info("Client in VectorStore ist nicht verbunden. Verbinde...")
-            self.client.connect()
+            self._client.connect()
             
         return super()._select_relevance_score_fn()
     
     def similarity_search_with_score(self, *args, **kwargs):
         """Überschreibe diese Methode, um sie mit der Verbindungsprüfung zu erweitern."""
         # Stelle sicher, dass der Client verbunden ist, bevor wir ihn verwenden
-        if not self.client.is_connected():
+        if not self._client.is_connected():
             logger.info("Client in VectorStore ist nicht verbunden. Verbinde...")
-            self.client.connect()
+            self._client.connect()
             
         return super().similarity_search_with_score(*args, **kwargs)
     
     def similarity_search(self, *args, **kwargs):
         """Überschreibe diese Methode, um sie mit der Verbindungsprüfung zu erweitern."""
         # Stelle sicher, dass der Client verbunden ist, bevor wir ihn verwenden
-        if not self.client.is_connected():
+        if not self._client.is_connected():
             logger.info("Client in VectorStore ist nicht verbunden. Verbinde...")
-            self.client.connect()
+            self._client.connect()
             
         return super().similarity_search(*args, **kwargs)
+
+# Function to actually create retrievers (can be called by ensure_global_retrievers)
+def _create_and_get_retrievers() -> Dict[str, Optional[object]]:
+    """
+    Internal function to create and return a dictionary of retrievers.
+    Handles potential None values.
+    """
+    retrievers_dict = {}
+    try:
+        chunks, summaries, quotes, faqs = create_retrievers()
+        retrievers_dict["chunks"] = chunks
+        retrievers_dict["summaries"] = summaries
+        retrievers_dict["quotes"] = quotes
+        retrievers_dict["faq"] = faqs
+        logger.info("Global retrievers created and cached.")
+    except Exception as e:
+        logger.error(f"Error during retriever creation in _create_and_get_retrievers: {e}")
+        # Initialize with None if creation fails
+        retrievers_dict = {"chunks": None, "summaries": None, "quotes": None, "faq": None}
+    return retrievers_dict
+
+def ensure_global_retrievers() -> Dict[str, Optional[object]]:
+    """
+    Ensures that the global retrievers dictionary exists and is populated.
+    Returns the dictionary of retrievers.
+    """
+    global global_retrievers
+    if global_retrievers is None:
+        logger.info("Global retrievers not cached. Creating...")
+        global_retrievers = _create_and_get_retrievers()
+    # Optionally, add a check here to recreate if they are somehow invalid, but start simple
+    return global_retrievers
 
 def create_retrievers() -> Tuple[Optional[object], Optional[object], Optional[object], Optional[object]]:
     """

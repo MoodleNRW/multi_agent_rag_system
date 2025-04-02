@@ -21,8 +21,8 @@ services:
       PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
       DEFAULT_VECTORIZER_MODULE: 'text2vec-openai'
       ENABLE_MODULES: 'text2vec-openai'
-      OPENAI_APIKEY: ${OPENAI_API_KEY}
-      TEXT2VEC_OPENAI_MODEL: 'text-embedding-ada-002'
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      TEXT2VEC_OPENAI_MODEL: 'text-embedding-3-small'
       ENABLE_API_BASED_MODULES: 'true'
       CLUSTER_HOSTNAME: 'node1'
 volumes:

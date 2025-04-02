@@ -19,19 +19,29 @@ class QuestionAnswerFromContext(BaseModel):
 
 
 @traceable(pass_config=False)
-@cl.step(name="Generate Answer", type="tool")
+@cl.step(name="Generate Answer from Context", type="llm")
 async def run_qualtative_answer_workflow(state: PlanExecute):
     """
-    Generiert eine Antwort auf eine Frage basierend auf dem bereitgestellten Kontext.
+    Generates an answer based on the provided context (typically state['curr_context']).
+    Used for intermediate answers within the plan.
     
     Args:
-        state: Der aktuelle Zustand der Planausführung.
+        state: The current state of the plan execution.
         
     Returns:
-        Der aktualisierte Zustand mit der generierten Antwort.
+        The state with the generated answer added to 'aggregated_filtered_context'.
     """
     state["curr_state"] = "answer"
-    
+
+    question = state["query_to_retrieve_or_answer"]
+    context = state.get("curr_context", "")
+
+    if not context or not context.strip():
+        await cl.Message(content="No context provided for intermediate answer generation. Skipping.").send()
+        if "aggregated_filtered_context" not in state:
+            state["aggregated_filtered_context"] = ""
+        return state
+
     question_answer_cot_prompt_template = """
     # Beispiele für Chain-of-Thought-Reasoning
 
@@ -73,118 +83,87 @@ async def run_qualtative_answer_workflow(state: PlanExecute):
     {question}
     """
     
-    question = state["query_to_retrieve_or_answer"]
-    context = state["curr_context"] if "curr_context" in state else state["aggregated_context"]
-    
-    question_answer_cot_prompt = PromptTemplate(
+    question_answer_from_context_cot_prompt = PromptTemplate(
         template=question_answer_cot_prompt_template,
         input_variables=["context", "question"],
     )
     
-    llm = get_llm(temperature=0)
-    chain = question_answer_cot_prompt | llm.with_structured_output(
+    question_answer_from_context_cot_llm = get_llm(temperature=0)
+    question_answer_from_context_cot_chain = question_answer_from_context_cot_prompt | question_answer_from_context_cot_llm.with_structured_output(
         QuestionAnswerFromContext,
         method="function_calling",
         strict=True
     )
     
-    await cl.Message(content=f"Beantworte die Frage mit Chain-of-Thought-Reasoning: '{question}'").send()
-    
-    start_time = time.time()
-    result = chain.invoke({"context": context, "question": question})
-    end_time = time.time()
-    
-    state["answer"] = result.answer_based_on_content
-    
-    # Zeige den Gedankengang an
-    thought_msg = cl.Message(content=f"**Gedankengang:**\n\n{result.reasoning}")
-    thought_msg.language = "markdown"
-    await thought_msg.send()
-    
-    # Zeige die Antwort an
-    answer_msg = cl.Message(content=f"**Antwort:**\n\n{result.answer_based_on_content}")
-    answer_msg.language = "markdown"
-    await answer_msg.send()
-    
-    await cl.Message(content=f"⏱️ Antwort in {round(end_time - start_time, 2)} Sekunden generiert").send()
-    
+    try:
+        input_data = {"question": question, "context": context}
+        output = question_answer_from_context_cot_chain.invoke(input_data)
+        intermediate_answer = output.answer_based_on_content
+
+        await cl.Message(content=f"Intermediate Answer generated (added to context).").send()
+
+        if "aggregated_filtered_context" not in state or state["aggregated_filtered_context"] is None:
+            state["aggregated_filtered_context"] = ""
+        state["aggregated_filtered_context"] += f"\\n\\nIntermediate Answer to '{question}': {intermediate_answer}"
+
+    except Exception as e:
+        await cl.Message(content=f"Error during intermediate answer generation: {e}. Skipping.").send()
+
+    state["curr_context"] = ""
     return state
 
 @traceable(pass_config=False)
-@cl.step(name="Generate Final Answer", type="tool")
+@cl.step(name="Generate Final Answer", type="llm")
 async def run_qualtative_answer_workflow_for_final_answer(state: PlanExecute):
-    """
-    Generiert eine finale Antwort auf die ursprüngliche Frage basierend auf dem gesammelten Kontext.
-    
-    Args:
-        state: Der aktuelle Zustand der Planausführung.
-        
-    Returns:
-        Der aktualisierte Zustand mit der generierten Antwort.
-    """
     state["curr_state"] = "get_final_answer"
-    
-    final_answer_cot_prompt_template = """
-    # Finale Antwort generieren
 
-    Du bist ein Experte im Bereich Support und sollst eine fundierte, präzise Antwort auf die Frage geben.
-    
-    Verwende den folgenden strukturierten Ansatz:
-    
-    1. Verstehen der Frage: Analysiere die Frage sorgfältig
-    2. Analyse des Kontexts: Identifiziere alle relevanten Informationen im Kontext
-    3. Bewertung der Informationsqualität: Prüfe, ob der Kontext ausreichend Informationen enthält
-    4. Strukturierte Antwortentwicklung: Baue eine klare, präzise Antwort auf
-    5. Selbstüberprüfung: Stelle sicher, dass die Antwort durch den Kontext gestützt wird
-    
-    Bitte beantworte die folgende Frage, indem du zuerst deinen schrittweisen Denkprozess aufzeigst und dann eine endgültige Antwort formulierst.
-    
-    WICHTIG: Erwähne NICHT, dass du diese Informationen "aus dem Kontext" hast. Formuliere die Antwort, als wärst du ein Support-Experte, der direkt antwortet.
-    WICHTIG: Mögliche Quellen wie Links sollst du in der Antwort erwähnen.
-    WICHTIG: Wenn die Frage nicht beantwortet werden kann, erkläre klar, warum nicht und was für Informationen fehlen.
-    WICHTIG: Falls im Kontext nur Daten aus der FAQ vorhanden sind, übernehme die Antwort aus der FAQ.
-    Kontext:
-    {context}
-    
-    Frage:
-    {question}
-    """
-    
-    question = state["question"]  # Die ursprüngliche Frage verwenden
-    context = state["aggregated_context"]
-    
-    final_answer_cot_prompt = PromptTemplate(
-        template=final_answer_cot_prompt_template,
+    question = state["question"]
+    context = state.get("aggregated_filtered_context", "")
+    answerability = state.get("answerability_status", "can_be_answered_already") # Default to full answer attempt if status missing
+
+    await cl.Message(content=f"Generating final answer (status: {answerability})...").send()
+
+    if not context or not context.strip():
+        await cl.Message(content="Aggregated context is empty. Cannot generate final answer.").send()
+        state["response"] = {"answer": "I could not find enough information to answer the question based on the provided documents."}
+        return state
+
+    # Adjust prompt based on whether the answer should be full or partial
+    if answerability == "partially_answered":
+        final_prompt_template = (
+            "Based on the following accumulated information:\n{context}\n\n" + 
+            "While the context doesn't seem to contain the *exact* specific detail requested (e.g., a concrete code snippet), " +
+            "please synthesize the available relevant information to provide the best possible partial answer to the question: {question}\n\n" + 
+            "Explain what information *is* available and clearly state what specific details are missing or where they might be found " +
+            "(if mentioned in the context, e.g., 'examples available on the support portal').\n" +
+            "Use a Chain-of-Thought reasoning process."
+        )
+    else: # Assume 'can_be_answered_already' or unknown defaults to full answer attempt
+        final_prompt_template = (
+            "Based on the following accumulated information:\n{context}\n\n" +
+            "Provide a comprehensive final answer to the question: {question}\n\n" +
+            "Use a Chain-of-Thought reasoning process to arrive at the answer."
+        )
+
+    final_answer_prompt = PromptTemplate(
+        template=final_prompt_template,
         input_variables=["context", "question"],
     )
-    
-    llm = get_llm(temperature=0)
-    chain = final_answer_cot_prompt | llm.with_structured_output(
-        QuestionAnswerFromContext,
+
+    final_answer_llm = get_llm(temperature=0.1)
+    final_answer_chain = final_answer_prompt | final_answer_llm.with_structured_output(
+        QuestionAnswerFromContext, # Still expect a single 'answer' field
         method="function_calling",
         strict=True
     )
-    
-    await cl.Message(content=f"🎯 Generiere finale Antwort auf die ursprüngliche Frage: '{question}'").send()
-    
-    start_time = time.time()
-    result = chain.invoke({"context": context, "question": question})
-    end_time = time.time()
-    
-    state["response"] = result.answer_based_on_content
-    
-    # Zeige den Gedankengang intern
-    thought_msg = cl.Message(content=f"**Interner Gedankengang:**\n\n{result.reasoning}")
-    #thought_msg.language = "markdown"
-    thought_msg.type = "system"
-    await thought_msg.send()
-    
-    # Zeige die finale Antwort mit besonderer Formatierung
-    answer_msg = cl.Message(content=result.answer_based_on_content)
-    answer_msg.language = "Antwort"
-    answer_msg.parent_id = None
-    await answer_msg.send()
-    
-    await cl.Message(content=f"⏱️ Finale Antwort in {round(end_time - start_time, 2)} Sekunden generiert").send()
-    
+
+    try:
+        input_data = {"question": question, "context": context}
+        output = final_answer_chain.invoke(input_data)
+        final_answer = output.answer_based_on_content
+        state["response"] = {"answer": final_answer}
+    except Exception as e:
+        await cl.Message(content=f"Error during final answer generation: {e}.").send()
+        state["response"] = {"answer": f"An error occurred while generating the final answer: {e}"}
+
     return state

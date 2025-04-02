@@ -9,7 +9,7 @@ import dotenv
 import os
 import logging
 import asyncio
-from vector_stores.retriever import ensure_global_client
+from vector_stores.retriever import ensure_global_client, ensure_global_retrievers
 from ui.faq_ui import search_faq_database, show_save_to_faq_option
 from pydantic import BaseModel, Field
 from langchain.prompts import PromptTemplate
@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 @traceable(pass_config=False)
-@cl.step(name="Check FAQ", type="process")
+@cl.step(name="Check FAQ", type="retrieval")
 async def run_faq_check_workflow(state: PlanExecute):
     """
     Überprüft zuerst die FAQ-Datenbank auf eine passende Antwort.
@@ -40,290 +40,122 @@ async def run_faq_check_workflow(state: PlanExecute):
     logger.info(f"Überprüfe FAQ-Datenbank für Anfrage: {query}")
     await cl.Message(content="🔍 Überprüfe FAQ-Datenbank...").send()
     
-    # Schwellenwert für direkten Wechsel zur Antwort
-    DIRECT_ANSWER_THRESHOLD = 0.90
-    
-    try:
-        # Suche in der FAQ-Datenbank mit SEHR hohem Ähnlichkeitsschwellenwert
-        faqs = await search_faq_database(query, limit=2)
-        await cl.Message(content=f"FAQ-Datenbank durchsucht. {len(faqs)} relevante FAQs gefunden.").send()
-        # Filtern und Prüfen auf relevante Inhalte
-        relevant_faqs = []
-        if faqs:
-            for faq in faqs:
-                similarity = faq.get('similarity', 0)
-                # Zusätzliche Relevanzprüfung mit strengem Schwellenwert
-                if similarity >= 0.85:
-                    relevant_faqs.append(faq)
-                    logger.info(f"Relevante FAQ gefunden mit Ähnlichkeit: {similarity}")
-        
-        if relevant_faqs:
-            # Relevante FAQ gefunden - nehme die mit der höchsten Ähnlichkeit
-            best_faq = max(relevant_faqs, key=lambda x: x.get('similarity', 0))
-            similarity = best_faq.get('similarity', 0)
-            logger.info(f"Beste FAQ gefunden mit Ähnlichkeit: {similarity}")
-            
-            # Formatiere die Antwort
-            response = f"📚 **Aus den FAQs:**\n\n**Frage:** {best_faq['question']}\n\n**Antwort:** {best_faq['answer']}"
-            
-            # Aktualisiere den Zustand mit relevanten Informationen
-            state["curr_context"] = response
-            state["aggregated_context"] = response
-            state["response"] = best_faq['answer']
-            
-            try:
-                # Zeige FAQ-Speicheroption für die Frage an - fange Fehler ab, falls diese Funktion fehlschlägt
-                await show_save_to_faq_option(query, best_faq['answer'])
-            except Exception as e:
-                logger.error(f"Fehler beim Anzeigen der FAQ-Speicheroption: {str(e)}")
-                # Fahre fort, auch wenn die Speicheroption nicht angezeigt werden kann
-            
-            # Entscheide basierend auf der Ähnlichkeit, ob direkt zur Antwort gesprungen wird
-            print(f"Similarity: {similarity}")
-            if similarity >= DIRECT_ANSWER_THRESHOLD:
-                # Bei sehr hoher Ähnlichkeit direkt zur Antwort springen
-                print("XXX sim")
-                await cl.Message(content=f"✅ Exakte Übereinstimmung in den FAQs gefunden (Ähnlichkeit: {similarity:.2%})").send()
-                await cl.Message(content="Da die Frage fast identisch zu einer bekannten FAQ ist, gebe ich direkt die Antwort.").send()
-                await cl.Message(content=best_faq.get("answer")).send()
-                state["response"] = best_faq.get("answer")
-                #state["direct_to_answer"] = True
-                state["tool"] = "answer"
-                #TODO embedding similarity check answer and question
-                return state
-            else:
-                # Bei moderater Ähnlichkeit, trotzdem in der Dokumentation suchen
-                await cl.Message(content=f"⚠️ Mögliche passende FAQ gefunden (Ähnlichkeit: {similarity:.2%})").send()
-                await cl.Message(content=f"Da die Ähnlichkeit nicht extrem hoch ist, werde ich zur Sicherheit auch in der Dokumentation suchen.").send()
-                await cl.Message(content=response).send()
-                
-                # Setze auf paralleles Retrieval als nächsten Schritt
-                state["tool"] = "parallel_retrieval"
-                return state
-        
-        # Keine passende FAQ gefunden
-        logger.info("Keine ausreichend relevante FAQ gefunden, fahre mit normaler Suche fort")
-        await cl.Message(content="ℹ️ Keine passende FAQ gefunden, suche in der Dokumentation...").send()
-        
-        # Setze auf paralleles Retrieval als nächsten Schritt
-        state["tool"] = "parallel_retrieval"
-        return state
-        
-    except Exception as e:
-        logger.error(f"Fehler beim Überprüfen der FAQ-Datenbank: {str(e)}")
-        await cl.Message(content="⚠️ Fehler beim Überprüfen der FAQ-Datenbank, fahre mit normaler Suche fort...").send()
-        
-        # Bei Fehler, fahre mit parallelem Retrieval fort
-        state["tool"] = "parallel_retrieval"
-        
-        # Setze den Fehlerkontext
-        state["error"] = f"Fehler bei der FAQ-Suche: {str(e)}"
-        
+    faq_retriever = ensure_global_retrievers().get("faq")
+    if not faq_retriever:
+        await cl.Message(content="FAQ retriever not available. Proceeding with other methods.").send()
+        state["direct_to_answer"] = False
+        state["raw_context"] = ""
+        state["routing"] = "back_to_task_handler"
         return state
 
+    faq_docs = faq_retriever.get_relevant_documents(query)
+
+    if faq_docs:
+        faq_answer = faq_docs[0].page_content
+        await cl.Message(content=f"FAQ Answer Found: {faq_answer}").send()
+        # Add FAQ answer to the aggregated filtered context directly
+        if "aggregated_filtered_context" not in state or state["aggregated_filtered_context"] is None:
+            state["aggregated_filtered_context"] = ""
+        state["aggregated_filtered_context"] += f"\n\nFAQ Answer: {faq_answer}"
+        state["direct_to_answer"] = True
+        state["response"] = {"answer": faq_answer} # Set response directly for FAQ
+        state["raw_context"] = "" # No raw context to filter
+        state["routing"] = "direct_to_answer"
+    else:
+        await cl.Message(content="No matching FAQ found. Proceeding with other methods.").send()
+        state["direct_to_answer"] = False
+        state["raw_context"] = ""
+        state["routing"] = "back_to_task_handler"
+
+    return state
+
 @traceable(pass_config=False)
-@cl.step(name="Retrieve Chunks", type="tool")
+@cl.step(name="Retrieve Chunks", type="retrieval")
 async def run_qualitative_chunks_retrieval_workflow(state: PlanExecute):
     """
-    Run the qualitative chunks retrieval workflow.
+    Retrieves relevant context from book chunks.
     Args:
         state: The current state of the plan execution.
     Returns:
-        The state with the updated aggregated context.
+        The state with the updated raw context.
     """
     state["curr_state"] = "retrieve_chunks"
+    question = state["query_to_retrieve_or_answer"]
+    await cl.Message(content=f"Retrieving chunks for query: '{question}'").send()
 
-    query = state["query_to_retrieve_or_answer"]
-    
-    # Verwende den globalen Weaviate-Client
-    weaviate_client = ensure_global_client()
-    if not weaviate_client:
-        state["curr_context"] += "Fehler: Konnte keine Verbindung zum Weaviate-Client herstellen."
-        state["aggregated_context"] += state["curr_context"]
+    chunks_retriever = ensure_global_retrievers().get("chunks")
+    if not chunks_retriever:
+        await cl.Message(content="Error: Chunk retriever not available.").send()
+        state["raw_context"] = ""
         return state
-    
-    # Stelle sicher, dass der Client verbunden ist
-    if not weaviate_client.is_connected():
-        logger.info("Der WeaviateClient ist nicht verbunden. Verbinde...")
-        try:
-            weaviate_client.connect()
-        except Exception as e:
-            state["curr_context"] += f"Fehler beim Verbinden des Weaviate-Clients: {str(e)}"
-            state["aggregated_context"] += state["curr_context"]
-            return state
 
-    try:
-        # Verwende die korrekte API für die Abfrage (v4)
-        content_chunk_collection = weaviate_client.collections.get("Content_chunk")
-        query_result = content_chunk_collection.query.hybrid(
-            query=query,
-            limit=5,
-            return_metadata=wvc.query.MetadataQuery(score=True),
-            return_properties=["url", "content_chunk"]
-        )
-        
-        print(f"Query Result: {query_result}")
-        docs = query_result.objects
-        
-        # Filter out empty content
-        retrieved_info = " ".join(f"{doc.properties['url']}: {doc.properties['content_chunk']}" 
-                                 for doc in docs 
-                                 if doc.properties.get('content_chunk') and doc.properties['content_chunk'].strip())
-        
-        state["curr_context"] += f"Retrieved chunk information: {retrieved_info}"
-        state["aggregated_context"] += state["curr_context"]
-    
-    except Exception as e:
-        state["curr_context"] += f"Error retrieving chunks: {str(e)}"
-        state["aggregated_context"] += state["curr_context"]
-        
-        # Versuche, den Client neu zu verbinden
-        try:
-            if weaviate_client and not weaviate_client.is_connected():
-                weaviate_client.connect()
-                logger.info("Weaviate-Client wurde nach Fehler neu verbunden.")
-        except:
-            pass
+    docs = chunks_retriever.get_relevant_documents(question)
+    raw_retrieved_content = " ".join(doc.page_content for doc in docs)
 
+    state["raw_context"] = raw_retrieved_content
+    # Removed direct update to aggregated_context
     return state
 
 @traceable(pass_config=False)
-@cl.step(name="Retrieve Summaries", type="tool")
+@cl.step(name="Retrieve Summaries", type="retrieval")
 async def run_qualitative_summaries_retrieval_workflow(state: PlanExecute):
     """
-    Run the qualitative summaries retrieval workflow.
+    Retrieves relevant context from chapter summaries.
     Args:
         state: The current state of the plan execution.
     Returns:
-        The state with the updated aggregated context.
+        The state with the updated raw context.
     """
     state["curr_state"] = "retrieve_summaries"
-    
-    query = state["query_to_retrieve_or_answer"]
-    
-    # Verwende den globalen Weaviate-Client
-    weaviate_client = ensure_global_client()
-    if not weaviate_client:
-        state["curr_context"] += "Fehler: Konnte keine Verbindung zum Weaviate-Client herstellen."
-        state["aggregated_context"] += state["curr_context"]
+    question = state["query_to_retrieve_or_answer"]
+    await cl.Message(content=f"Retrieving summaries for query: '{question}'").send()
+
+    summaries_retriever = ensure_global_retrievers().get("summaries")
+    if not summaries_retriever:
+        await cl.Message(content="Error: Summary retriever not available.").send()
+        state["raw_context"] = ""
         return state
-    
-    # Stelle sicher, dass der Client verbunden ist
-    if not weaviate_client.is_connected():
-        logger.info("Der WeaviateClient ist nicht verbunden. Verbinde...")
-        try:
-            weaviate_client.connect()
-        except Exception as e:
-            state["curr_context"] += f"Fehler beim Verbinden des Weaviate-Clients: {str(e)}"
-            state["aggregated_context"] += state["curr_context"]
-            return state
 
-    try:
-        # Verwende die korrekte API für die Abfrage (v4)
-        content_summary_collection = weaviate_client.collections.get("Content_summary")
-        query_result = content_summary_collection.query.hybrid(
-            query=query,
-            limit=4,
-            return_metadata=wvc.query.MetadataQuery(score=True),
-            return_properties=["url", "content_summary"]
-        )
-        
-        print(f"Query Result: {query_result}"   )
-        docs = query_result.objects
-        
-        # Filter out empty content
-        retrieved_info = " ".join(f"{doc.properties['url']}: {doc.properties['content_summary']}" 
-                                 for doc in docs 
-                                 if doc.properties.get('content_summary') and doc.properties['content_summary'].strip())
-        
-        state["curr_context"] += f"Retrieved summary information: {retrieved_info}"
-        state["aggregated_context"] += state["curr_context"]
-    
-    except Exception as e:
-        state["curr_context"] += f"Error retrieving summaries: {str(e)}"
-        state["aggregated_context"] += state["curr_context"]
-        
-        # Versuche, den Client neu zu verbinden
-        try:
-            if weaviate_client and not weaviate_client.is_connected():
-                weaviate_client.connect()
-                logger.info("Weaviate-Client wurde nach Fehler neu verbunden.")
-        except:
-            pass
-
+    docs_summaries = summaries_retriever.get_relevant_documents(question)
+    raw_retrieved_content = " ".join(
+        f"{doc.page_content} (Source: Summary {doc.metadata.get('summary_id', '')})" for doc in docs_summaries
+    )
+    state["raw_context"] = raw_retrieved_content
+    # Removed direct update to aggregated_context
     return state
 
 @traceable(pass_config=False)
-@cl.step(name="Retrieve Quotes", type="tool")
+@cl.step(name="Retrieve Quotes", type="retrieval")
 async def run_qualitative_quotes_retrieval_workflow(state: PlanExecute):
     """
-    Run the qualitative quotes retrieval workflow.
+    Retrieves relevant context from book quotes.
     Args:
         state: The current state of the plan execution.
     Returns:
-        The state with the updated aggregated context.
+        The state with the updated raw context.
     """
     state["curr_state"] = "retrieve_quotes"
+    question = state["query_to_retrieve_or_answer"]
+    await cl.Message(content=f"Retrieving quotes for query: '{question}'").send()
 
-    query = state["query_to_retrieve_or_answer"]
-    
-    # Verwende den globalen Weaviate-Client
-    weaviate_client = ensure_global_client()
-    if not weaviate_client:
-        state["curr_context"] += "Fehler: Konnte keine Verbindung zum Weaviate-Client herstellen."
-        state["aggregated_context"] += state["curr_context"]
+    quotes_retriever = ensure_global_retrievers().get("quotes")
+    if not quotes_retriever:
+        await cl.Message(content="Error: Quotes retriever not available.").send()
+        state["raw_context"] = ""
         return state
-    
-    # Stelle sicher, dass der Client verbunden ist
-    if not weaviate_client.is_connected():
-        logger.info("Der WeaviateClient ist nicht verbunden. Verbinde...")
-        try:
-            weaviate_client.connect()
-        except Exception as e:
-            state["curr_context"] += f"Fehler beim Verbinden des Weaviate-Clients: {str(e)}"
-            state["aggregated_context"] += state["curr_context"]
-            return state
 
-    try:
-        # Verwende die korrekte API für die Abfrage (v4)
-        quote_collection = weaviate_client.collections.get("Quote")
-        query_result = quote_collection.query.hybrid(
-            query=query,
-            limit=10,
-            return_metadata=wvc.query.MetadataQuery(score=True),
-            return_properties=["url", "content", "source", "title"]
-        )
-        
-        print(f"Query Result: {query_result}")
-        docs = query_result.objects
-        
-        # Filter out empty content and only include quotes or definitions
-        retrieved_info = " ".join(f"{doc.properties['url']} ({doc.properties.get('source', 'unbekannt')}): {doc.properties['content']}" 
-                                 for doc in docs 
-                                 if doc.properties.get('content') and doc.properties['content'].strip())
-        
-        state["curr_context"] += f"Retrieved quote information: {retrieved_info}"
-        state["aggregated_context"] += state["curr_context"]
-    
-    except Exception as e:
-        state["curr_context"] += f"Error retrieving quotes: {str(e)}"
-        state["aggregated_context"] += state["curr_context"]
-        
-        # Versuche, den Client neu zu verbinden
-        try:
-            if weaviate_client and not weaviate_client.is_connected():
-                weaviate_client.connect()
-                logger.info("Weaviate-Client wurde nach Fehler neu verbunden.")
-        except:
-            pass
+    docs_book_quotes = quotes_retriever.get_relevant_documents(question)
+    raw_retrieved_content = " ".join(doc.page_content for doc in docs_book_quotes)
 
+    state["raw_context"] = raw_retrieved_content
+    # Removed direct update to aggregated_context
     return state
 
 @traceable(pass_config=False)
-@cl.step(name="Parallel Retrieval", type="tool")
+@cl.step(name="Parallel Retrieval", type="retrieval")
 async def run_parallel_retrieval_workflow(state: PlanExecute):
     """
-    Führt alle drei Retrieval-Methoden parallel aus und kombiniert die Ergebnisse.
+    Retrieves relevant context from chunks, summaries, and quotes in parallel (conceptually).
     
     Args:
         state: Der aktuelle Zustand der Plan-Ausführung.
@@ -331,44 +163,30 @@ async def run_parallel_retrieval_workflow(state: PlanExecute):
         Der aktualisierte Zustand mit den kombinierten Retrieval-Ergebnissen.
     """
     state["curr_state"] = "parallel_retrieval"
-    
-    # Erstelle Kopien des Zustands für jede Retrieval-Methode
-    chunks_state = state.copy()
-    summaries_state = state.copy()
-    quotes_state = state.copy()
-    
-    # Führe alle drei Retrieval-Methoden parallel aus
-    await cl.Message(content=f"Führe parallele Retrieval-Methoden für die Anfrage aus: '{state['query_to_retrieve_or_answer']}'").send()
-    
-    retrieval_tasks = [
-        run_qualitative_chunks_retrieval_workflow(chunks_state),
-        run_qualitative_summaries_retrieval_workflow(summaries_state),
-        run_qualitative_quotes_retrieval_workflow(quotes_state)
-    ]
-    
-    # Warte auf alle Retrieval-Ergebnisse
-    chunks_result, summaries_result, quotes_result = await asyncio.gather(*retrieval_tasks)
-    
-    # Extrahiere die Kontexte aus den Ergebnissen
-    chunks_context = chunks_result.get("curr_context", "")
-    summaries_context = summaries_result.get("curr_context", "")
-    quotes_context = quotes_result.get("curr_context", "")
-    
-    # Kombiniere die Kontexte mit Quellenangaben
-    combined_context = ""
-    if chunks_context:
-        combined_context += f"### Aus Chunks:\n{chunks_context}\n\n"
-    if summaries_context:
-        combined_context += f"### Aus Zusammenfassungen:\n{summaries_context}\n\n"
-    if quotes_context:
-        combined_context += f"### Aus Zitaten:\n{quotes_context}\n\n"
-    
-    # Aktualisiere den Zustand mit dem kombinierten Kontext
-    state["curr_context"] = combined_context
-    state["aggregated_context"] += combined_context
-    
-    await cl.Message(content=f"Parallele Retrieval-Methoden abgeschlossen. Kombinierte {len(chunks_context) + len(summaries_context) + len(quotes_context)} Zeichen an Kontext.").send()
-    
+    question = state["query_to_retrieve_or_answer"]
+    await cl.Message(content=f"Performing parallel retrieval for query: '{question}'").send()
+
+    retrievers = ensure_global_retrievers()
+    chunks_retriever = retrievers.get("chunks")
+    summaries_retriever = retrievers.get("summaries")
+    quotes_retriever = retrievers.get("quotes")
+
+    all_raw_context = []
+
+    if chunks_retriever:
+        chunk_docs = chunks_retriever.get_relevant_documents(question)
+        all_raw_context.append(" ".join(doc.page_content for doc in chunk_docs))
+
+    if summaries_retriever:
+        summary_docs = summaries_retriever.get_relevant_documents(question)
+        all_raw_context.append(" ".join(f"{doc.page_content} (Source: Summary {doc.metadata.get('summary_id', '')})" for doc in summary_docs))
+
+    if quotes_retriever:
+        quote_docs = quotes_retriever.get_relevant_documents(question)
+        all_raw_context.append(" ".join(doc.page_content for doc in quote_docs))
+
+    state["raw_context"] = "\n\n".join(filter(None, all_raw_context))
+    # Removed direct update to aggregated_context
     return state
 
 async def check_content_grounding(distilled_content, original_context):

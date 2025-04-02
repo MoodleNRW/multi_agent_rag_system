@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 # Lade Umgebungsvariablen
-dotenv.load_dotenv()
+dotenv.load_dotenv(override=True)
 API_KEY = os.getenv('OPENAI_API_KEY')
 
 # Weaviate-Konfiguration

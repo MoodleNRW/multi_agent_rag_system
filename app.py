@@ -38,7 +38,7 @@ config_manager = ConfigManager()
 API_KEY = os.getenv('OPENAI_API_KEY')
 
 # Lade Umgebungsvariablen
-dotenv.load_dotenv()
+dotenv.load_dotenv(override=True)
 
 # Globaler Client
 client = ensure_global_client()
@@ -188,7 +188,7 @@ async def process_message(message_content: str):
     await start_evaluation(message_content)
     
     # Führe den Workflow aus
-    config = {"recursion_limit": 35}
+    config = {"recursion_limit": 25}
     step_output = None
     astream_generator = None
     

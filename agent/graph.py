@@ -26,118 +26,100 @@ from .answerer import run_qualtative_answer_workflow, run_qualtative_answer_work
 from .verifier import can_be_answered
 from .hallucination_checker import is_answer_grounded_on_context
 from .relevance_checker import is_relevant_content
+import json # For pretty printing context
 
     # Definiere das Output-Schema
 class KeepRelevantContent(BaseModel):
-    relevant_content: str = Field(description="Der relevante Inhalt aus den abgerufenen Dokumenten, der für die Anfrage relevant ist.")
+    relevant_content: str = Field(description="The relevant content from the retrieved documents that is relevant to the query.")
     
 # Neuer gemeinsamer Node für die Relevanzprüfung nach dem Retrieval
 @traceable(pass_config=False)
 @cl.step(name="Keep Only Relevant Content", type="process")
 async def keep_only_relevant_content(state: PlanExecute):
     """
-    Behält nur den relevanten Inhalt aus den abgerufenen Dokumenten.
-    
+    Filters the most recently retrieved context ('raw_context') to keep only relevant parts.
+
     Args:
-        state: Der aktuelle Zustand der Plan-Ausführung.
+        state: The current state of the plan execution. Must contain 'question' and 'raw_context'.
     Returns:
-        Der aktualisierte Zustand mit dem relevanten Inhalt.
+        The updated state with 'aggregated_filtered_context' updated and 'relevance_status' set.
     """
     state["curr_state"] = "keep_only_relevant_content"
-    
+
     # Extrahiere die benötigten Felder aus dem Zustand
     question = state["question"]
-    context = state["context"] if "context" in state else state["aggregated_context"]
-    
-    # Prompt-Template für die Filterung relevanter Inhalte
-    keep_only_relevant_content_prompt_template = """Du erhältst eine Anfrage: {query} und abgerufene Dokumente: {retrieved_documents} aus einem Vektorspeicher.
-    Du musst alle nicht relevanten Informationen herausfiltern, die keine wichtigen Informationen zur {query} liefern.
-    Dein Ziel ist es lediglich, die nicht relevanten Informationen herauszufiltern.
-    Du kannst Teile von Sätzen entfernen, die nicht relevant für die Anfrage sind, oder ganze Sätze, die nicht relevant für die Anfrage sind.
-    FÜGE KEINE NEUEN INFORMATIONEN HINZU, DIE NICHT IN DEN ABGERUFENEN DOKUMENTEN ENTHALTEN SIND.
-    Gib nur den gefilterten relevanten Inhalt aus.
+    # Use the newly retrieved raw context
+    raw_context = state.get("raw_context", "")
+
+    if not raw_context or not raw_context.strip():
+        # Keep this message
+        await cl.Message(content="No context retrieved in the previous step to filter.").send()
+        state["relevance_status"] = "no_context_to_filter"
+        # Ensure aggregated_filtered_context exists
+        if "aggregated_filtered_context" not in state:
+            state["aggregated_filtered_context"] = ""
+        return state
+
+    # Simplified English Prompt (closer to the reference notebook)
+    keep_only_relevant_content_prompt_template = """You receive a query: {query} and retrieved documents: {retrieved_documents} from a
+ vector store.
+ You need to filter out all the non relevant information that doesn't supply important information regarding the {query}.
+ Your goal is just to filter out the non relevant information.
+ You can remove parts of sentences that are not relevant to the query or remove whole sentences that are not relevant to the query.
+ DO NOT ADD ANY NEW INFORMATION THAT IS NOT IN THE RETRIEVED DOCUMENTS.
+ Output the filtered relevant content. If no content is relevant, output an empty string.
     """
-    
+
     keep_only_relevant_content_prompt = PromptTemplate(
         template=keep_only_relevant_content_prompt_template,
         input_variables=["query", "retrieved_documents"],
     )
-    
+
     keep_only_relevant_content_llm = get_llm(temperature=0)
     keep_only_relevant_content_chain = keep_only_relevant_content_prompt | keep_only_relevant_content_llm.with_structured_output(
-        KeepRelevantContent, 
+        KeepRelevantContent,
         method="function_calling",
-        strict=True
+        strict=True # Keep strict for now, maybe relax if needed
     )
-    
+
     # Eingabedaten für das LLM-Modell
     input_data = {
         "query": question,
-        "retrieved_documents": context
+        "retrieved_documents": raw_context # Filter the latest raw context
     }
-    
-    # Aufruf des LLM zur Filterung der Inhalte
-    await cl.Message(content=f"Behalte nur relevante Inhalte für die Anfrage: '{question}'").send()
-    output = keep_only_relevant_content_chain.invoke(input_data)
-    relevant_content = output.relevant_content
-    
-    # Prüfe, ob der relevante Inhalt im ursprünglichen Kontext verankert ist
-    is_grounded = await check_content_grounding(relevant_content, context)
-    
-    # Wenn der Inhalt nicht verankert ist, wiederholen wir die Anfrage mit einem angepassten Prompt
-    if not is_grounded and relevant_content.strip():
-        await cl.Message(content="Der gefilterte Inhalt enthält möglicherweise nicht im Original enthaltene Informationen. Versuche erneut zu filtern...").send()
-        
-        # Modifiziertes Prompt für strengere Filterung
-        stricter_prompt_template = """Du erhältst eine Anfrage: {query} und abgerufene Dokumente: {retrieved_documents} aus einem Vektorspeicher.
-        WICHTIG: Deine Ausgabe darf AUSSCHLIESSLICH Informationen enthalten, die wortwörtlich oder sinngemäß in den abgerufenen Dokumenten vorhanden sind.
-        
-        Filtere alle nicht relevanten Informationen heraus, die keine wichtigen Informationen zur {query} liefern.
-        Du kannst Teile von Sätzen oder ganze Sätze entfernen, die nicht relevant für die Anfrage sind.
-        Stelle sicher, dass jede Information in deiner Ausgabe direkt aus den abgerufenen Dokumenten stammt.
-        Gib nur den gefilterten relevanten Inhalt aus.
-        """
-        
-        stricter_prompt = PromptTemplate(
-            template=stricter_prompt_template,
-            input_variables=["query", "retrieved_documents"],
-        )
-        
-        stricter_chain = stricter_prompt | keep_only_relevant_content_llm.with_structured_output(
-            KeepRelevantContent, 
-            method="function_calling",
-            strict=True
-        )
-        
-        output = stricter_chain.invoke(input_data)
+
+    # Remove generic start message
+    # await cl.Message(content=f"Filtering retrieved content for query: '{question}'").send()
+    try:
+        output = keep_only_relevant_content_chain.invoke(input_data)
         relevant_content = output.relevant_content
-    
-    # Speichere den gefilterten Inhalt im Zustand
-    if not "aggregated_context" in state or state["aggregated_context"] == "":
-        state["aggregated_context"] = relevant_content
+    except Exception as e:
+        # Keep error message
+        await cl.Message(content=f"Error during content filtering: {e}. Skipping filtering.").send()
+        relevant_content = raw_context # Fallback: use raw context if filtering fails
+
+    # Remove the grounding check and retry logic for now to simplify
+    # is_grounded = await check_content_grounding(relevant_content, raw_context)
+    # ... (removed retry block) ...
+
+    # Initialize aggregated_filtered_context if it doesn't exist
+    if "aggregated_filtered_context" not in state or state["aggregated_filtered_context"] is None:
+        state["aggregated_filtered_context"] = ""
+
+    # Speichere den gefilterten Inhalt im Zustand (appending to the filtered aggregate)
+    if relevant_content and relevant_content.strip():
+        state["aggregated_filtered_context"] += f"\n\n{relevant_content}"
+        # Keep result message
+        await cl.Message(content=f"Relevant content found and added to aggregated context.").send()
+        state["relevance_status"] = "found_relevant_content"
     else:
-        state["aggregated_context"] += f"\n\n{relevant_content}"
-    
-    # Ist der gefilterte Inhalt leer (keine relevanten Inhalte gefunden)?
-    if not relevant_content.strip():
-        await cl.Message(content="Keine relevanten Inhalte gefunden. Versuche mit anderen Quellen.").send()
-        state["relevance_status"] = "not_grounded_on_the_original_context"
-        
-        # Bei keinen relevanten Inhalten wechsle zur nächsten Abrufmethode
-        if state["tool"] == "retrieve_chunks":
-            state["tool"] = "retrieve_summaries"
-        elif state["tool"] == "retrieve_summaries":
-            state["tool"] = "retrieve_quotes"
-        elif state["tool"] == "retrieve_quotes" or state["tool"] == "parallel_retrieval":
-            # Wenn alle einzelnen Retrieval-Methoden und paralleles Retrieval keine relevanten Ergebnisse liefern,
-            # versuche es mit einer allgemeineren Abfrage im parallelen Retrieval
-            state["tool"] = "parallel_retrieval"
-            # Generalisiere die Abfrage
-            state["query_to_retrieve_or_answer"] = f"Allgemeine Informationen zu: {question}"
-    else:
-        await cl.Message(content=f"Relevante Inhalte gefunden und zum Kontext hinzugefügt.").send()
-        state["relevance_status"] = "grounded_on_the_original_context"
-    
+        # Keep result message
+        await cl.Message(content="No relevant content found in this retrieved batch.").send()
+        state["relevance_status"] = "no_relevant_content_found"
+
+    # Clear raw_context after processing
+    state["raw_context"] = ""
+
     # Gebe den aktualisierten Zustand zurück
     return state
 
@@ -159,7 +141,6 @@ async def create_agent_graph():
     agent_workflow.add_node("answer", run_qualtative_answer_workflow)
     agent_workflow.add_node("get_final_answer", run_qualtative_answer_workflow_for_final_answer)
     agent_workflow.add_node("rewrite_question", rewrite_question)
-    agent_workflow.add_node("check_hallucination", check_answer_hallucination)
     agent_workflow.add_node("keep_only_relevant_content", keep_only_relevant_content)
     agent_workflow.add_node("replan", replan_step)
     agent_workflow.add_node("decide_faq_path", decide_faq_path)
@@ -193,17 +174,18 @@ async def create_agent_graph():
         "keep_only_relevant_content",
         lambda x: x["relevance_status"],
         {
-            "grounded_on_the_original_context": "replan",
-            "not_grounded_on_the_original_context": "rewrite_question"
+            "found_relevant_content": "replan",
+            "no_relevant_content_found": "replan",
+            "no_context_to_filter": "replan"
         }
     )
 
-    # Ändere die Halluzinationsprüfung, um den neuen check_hallucination-Knoten zu nutzen
+    # Conditional edges after the intermediate "answer" node
     agent_workflow.add_conditional_edges(
         "answer",
-        check_answer_hallucination,
+        is_answer_grounded_on_context,
         {
-            "grounded_on_context": "replan",
+            "grounded on context": "replan",
             "hallucination": "rewrite_question"
         }
     )
@@ -213,25 +195,26 @@ async def create_agent_graph():
 
     agent_workflow.add_edge("call_moodle_tool", "replan")
 
-    # Add conditional edges for replan
+    # Conditional edges AFTER replan
     agent_workflow.add_conditional_edges(
         "replan",
-        can_be_answered,
+        can_be_answered, # This function now returns one of three strings
         {
             "can_be_answered_already": "get_final_answer",
-            "cannot_be_answered_yet": "break_down_plan_to_retrieve_or_answer"
+            "partially_answered": "get_final_answer", # Also go to final answer for partial
+            "cannot_be_answered_yet": "break_down_plan_to_retrieve_or_answer" # Loop back if needed
         }
     )
 
-    # Add conditional edges for final answer hallucination check
+    # Final answer path should already be using is_answer_grounded_on_context
     agent_workflow.add_conditional_edges(
-        "get_final_answer",
-        check_answer_hallucination,
-        {
-            "grounded_on_context": END,
-            "hallucination": "replan"
-        }
-    )
+         "get_final_answer",
+         is_answer_grounded_on_context,
+         {
+             "grounded on context": END,
+             "hallucination": END
+         }
+     )
 
     # Füge die Entscheidungsfunktion zum Workflow hinzu
     agent_workflow.add_edge("check_faq", "decide_faq_path")
@@ -360,26 +343,40 @@ async def break_down_plan_step(state: PlanExecute):
 @cl.step(name="Replan", type="process")
 async def replan_step(state: PlanExecute):
     """
-    Replans the next step.
+    Replans the next step based on the current state, using the aggregated filtered context.
     Args:
         state: The current state of the plan execution.
     Returns:
-        The updated state with the plan.
+        The updated state with the potentially revised plan.
     """
     state["curr_state"] = "replan"
+    aggregated_context = state.get("aggregated_filtered_context", "")
+    current_plan = state.get("plan", [])
+    past_steps = state.get("past_steps", [])
+    original_question = state.get("question", "")
 
-    replan_prompt_template = """Given the current state of our question-answering process, we need to update our plan.
+    if not current_plan:
+        await cl.Message(content="Plan empty. Checking answerability...").send()
+        return state
+
+    replan_prompt_template = """Given the current state of our question-answering process, we need to update the remaining plan.
 
     Original question: {question}
-    Current plan: {plan}
-    Steps completed: {past_steps}
-    Current aggregated context: {aggregated_context}
+    Current remaining plan steps: {plan}
+    Steps already completed: {past_steps}
+    Current aggregated context based on completed steps:
+    {aggregated_context}
 
-    Based on this information, please update the plan. If further steps are needed, provide only those steps.
-    Do not include steps that have already been completed.
-    If the question can be fully answered with the current information, the plan should only include a step to formulate the final answer.
+    Based on this information, please refine the *remaining* plan steps.
+    - Analyze if the remaining steps are still necessary given the current context.
+    - Remove redundant steps.
+    - Add new steps if the context reveals a need for a different approach.
+    - If the question can likely be answered with the current context and the remaining plan involves just answering, keep the final answer step.
+    - If the question seems answerable now, but the plan still has retrieval steps, update the plan to just include the final answer step.
+    - Ensure the plan always leads towards answering the original question.
+    - Do not include steps that have already been completed in {past_steps}.
 
-    Output the updated plan as a list of steps in JSON format.
+    Output the updated list of remaining plan steps in JSON format.
     """
 
     replan_prompt = PromptTemplate(
@@ -387,26 +384,31 @@ async def replan_step(state: PlanExecute):
         input_variables=["question", "plan", "past_steps", "aggregated_context"],
     )
 
-    replan_llm = get_llm()
+    replan_llm = get_llm(temperature=0)
     replan_chain = replan_prompt | replan_llm.with_structured_output(
-        Plan,  
+        Plan, # Assuming Plan model is defined (List[str])
         method="function_calling",
         strict=True
     )
 
-    result = replan_chain.invoke({
-        "question": state["question"],
-        "plan": state["plan"],
-        "past_steps": state["past_steps"],
-        "aggregated_context": state["aggregated_context"]
-    })
+    try:
+        input_data = {
+            "question": original_question,
+            "plan": current_plan,
+            "past_steps": past_steps,
+            "aggregated_context": aggregated_context
+        }
+        result = replan_chain.invoke(input_data)
+        updated_plan = result.steps
 
-    state["plan"] = result.steps
+        state["plan"] = updated_plan
 
-    # Log the updated plan for debugging
-    cl.Task(title="Updated Plan", status=cl.TaskStatus.DONE)
-    for i, step in enumerate(state["plan"], 1):
-        cl.Task(title=f"Step {i}: {step}", status=cl.TaskStatus.DONE)
+        # Keep result message
+        await cl.Message(content=f"Updated Plan: {updated_plan}").send()
+    except Exception as e:
+        await cl.Message(content=f"Error during replanning: {e}. Keeping existing plan.").send()
+        if "plan" not in state:
+             state["plan"] = []
 
     return state
 
@@ -482,62 +484,6 @@ async def decide_faq_path(state: PlanExecute):
         await cl.Message(content=state["response"]).send()
     # Gib den vollständigen Zustand zurück
     return state
-
-class IsGroundedOnFacts(BaseModel):
-    """Ergebnis der Faktenüberprüfung."""
-    grounded_on_facts: bool = Field(description="Antwort basiert auf Fakten, 'ja' oder 'nein'")
-
-async def check_answer_hallucination(state: PlanExecute):
-    """
-    Überprüft, ob die generierte Antwort auf den gegebenen Fakten basiert oder eine Halluzination ist.
-    
-    Args:
-        state: Der aktuelle Zustand der Plan-Ausführung.
-    Returns:
-        "hallucination", wenn die Antwort nicht auf Fakten basiert, sonst "grounded_on_context".
-    """
-    state["curr_state"] = "check_hallucination"
-    
-    answer = state["response"] if "response" in state else state["answer"]
-    context = state["aggregated_context"] if "aggregated_context" in state else state["context"]
-    
-    await cl.Message(content="Überprüfe, ob die Antwort auf den gegebenen Fakten basiert...").send()
-    
-    # Prompt für die Überprüfung der Faktenbasiertheit
-    hallucination_check_prompt_template = """Du bist ein Faktenprüfer, der bestimmt, ob die gegebene Antwort {answer} 
-    auf dem gegebenen Kontext {context} basiert.
-    Es spielt keine Rolle, ob es logisch erscheint, solange es im Kontext verankert ist.
-    Ausgabe als JSON mit der Antwort auf die Frage.
-    """
-    
-    hallucination_check_prompt = PromptTemplate(
-        template=hallucination_check_prompt_template,
-        input_variables=["context", "answer"],
-    )
-    
-    # LLM-Modell für die Faktenprüfung
-    hallucination_check_llm = get_llm(temperature=0)
-    hallucination_check_chain = hallucination_check_prompt | hallucination_check_llm.with_structured_output(
-        IsGroundedOnFacts,
-        method="function_calling",
-        strict=True
-    )
-    
-    # Invoke the chain
-    input_data = {
-        "context": context,
-        "answer": answer
-    }
-    
-    result = hallucination_check_chain.invoke(input_data)
-    grounded = result.grounded_on_facts
-    
-    if not grounded:
-        await cl.Message(content="⚠️ Die Antwort scheint eine Halluzination zu sein und ist nicht vollständig durch den Kontext gestützt.").send()
-        return "hallucination"
-    else:
-        await cl.Message(content="✅ Die Antwort basiert auf den verfügbaren Fakten.").send()
-        return "grounded_on_context"  
 
 class RewrittenQuestion(BaseModel):
     """Schema für die umgeschriebene Frage."""

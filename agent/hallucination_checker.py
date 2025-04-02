@@ -8,62 +8,70 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class IsGroundedOnFacts(BaseModel):
-    """
-    Output-Schema für die Überprüfung, ob eine Antwort auf Fakten basiert.
-    """
-    grounded_on_facts: bool = Field(description="Antwort ist in den Fakten begründet, 'ja' oder 'nein'")
-    explanation: str = Field(description="Erklärung, warum die Antwort in den Fakten begründet ist oder nicht")
+class IsGroundedOnFactsResult(BaseModel):
+    """Schema for the fact-checking result."""
+    grounded_on_facts: bool = Field(description="Whether the answer is grounded in the provided facts (context). True or False.")
 
 @traceable(pass_config=False)
-@cl.step(name="Halluzinationsprüfung", type="process")
+@cl.step(name="Check Hallucination", type="process")
 async def is_answer_grounded_on_context(state: PlanExecute):
     """
-    Bestimmt, ob die Antwort auf die Frage in den Fakten begründet ist.
-    
+    Checks if the generated answer (in state['response']) is grounded in the aggregated filtered context.
     Args:
-        state: Ein Dictionary mit dem Kontext und der Antwort.
+        state: The current state of the plan execution.
+    Returns:
+        'grounded on context' or 'hallucination'.
     """
-    state["curr_state"] = "hallucination_check"
-    logger.info("=== HALLUZINATIONSPRÜFUNG WIRD AUFGERUFEN ===")
-    
-    is_grounded_on_facts_prompt_template = """Du bist ein Faktenprüfer, der feststellt, ob die gegebene Antwort {answer} im gegebenen Kontext {context} begründet ist.
-    Es ist nicht wichtig, ob die Antwort sinnvoll ist, solange sie im Kontext begründet ist.
-    
-    Analysiere sorgfältig, ob alle Behauptungen in der Antwort durch Informationen im Kontext unterstützt werden.
-    
-    Wenn die Antwort Informationen enthält, die nicht im Kontext zu finden sind, handelt es sich um eine Halluzination.
-    Wenn die Antwort nur Informationen enthält, die im Kontext zu finden sind, ist sie in den Fakten begründet.
-    
-    Gib deine Analyse in einem strukturierten Format zurück:
-    - grounded_on_facts: Ein boolescher Wert (true/false), der angibt, ob die Antwort vollständig im Kontext begründet ist
-    - explanation: Eine detaillierte Erklärung deiner Analyse
+    state["curr_state"] = "check_hallucination"
+
+    answer_dict = state.get("response", {})
+    answer = answer_dict.get("answer", "")
+    context = state.get("aggregated_filtered_context", "")
+
+    if not answer or not answer.strip():
+        await cl.Message(content="No answer generated to check for hallucination.").send()
+        return "grounded on context"
+
+    if not context or not context.strip():
+        await cl.Message(content="Aggregated context empty. Assuming hallucination.").send()
+        return "hallucination"
+
+    prompt_template = """You are a fact-checker. Your task is to determine if the statement provided in the 'answer' is factually supported by the information given in the 'context'.
+    Only consider the provided context as the source of truth. Do not use external knowledge.
+    The answer does not need to be perfectly phrased, but all core claims made in the answer must be traceable back to the context.
+
+    Context:
+    {context}
+
+    Answer:
+    {answer}
+
+    Is the Answer grounded in the Context?
+    Provide a boolean response ('grounded_on_facts').
     """
-    
-    is_grounded_on_facts_prompt = PromptTemplate(
-        template=is_grounded_on_facts_prompt_template,
+
+    prompt = PromptTemplate(
+        template=prompt_template,
         input_variables=["context", "answer"],
     )
-    
-    is_grounded_on_facts_llm = get_llm(temperature=0)
-    is_grounded_on_facts_chain = is_grounded_on_facts_prompt | is_grounded_on_facts_llm.with_structured_output(
-        IsGroundedOnFacts, 
+
+    llm = get_llm(temperature=0)
+    chain = prompt | llm.with_structured_output(
+        IsGroundedOnFactsResult,
         method="function_calling",
         strict=True
     )
-    
-    context = state["context"] if "context" in state else state["aggregated_context"]
-    answer = state["response"]
-    
-    result = is_grounded_on_facts_chain.invoke({"context": context, "answer": answer})
-    grounded_on_facts = result.grounded_on_facts
-    
-    # Log the decision for debugging
-    cl.Task(title="Halluzinationsprüfung", status=cl.TaskStatus.DONE)
-    cl.Task(title=f"Ergebnis: {'Faktenbasiert' if grounded_on_facts else 'Halluzination'}", status=cl.TaskStatus.DONE)
-    cl.Task(title=f"Erklärung: {result.explanation}", status=cl.TaskStatus.DONE)
-    
-    if not grounded_on_facts:
-        return "hallucination"
-    else:
-        return "grounded_on_context" 
+
+    try:
+        input_data = {"context": context, "answer": answer}
+        output = chain.invoke(input_data)
+
+        if output.grounded_on_facts:
+            await cl.Message(content="Answer grounded in context.").send()
+            return "grounded on context"
+        else:
+            await cl.Message(content="Potential Hallucination: Answer not fully grounded in context.").send()
+            return "hallucination"
+    except Exception as e:
+        await cl.Message(content=f"Error during hallucination check: {e}. Assuming hallucination.").send()
+        return "hallucination" 

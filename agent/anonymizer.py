@@ -29,7 +29,7 @@ async def anonymize_queries(state: PlanExecute):
     state["curr_state"] = "anonymize_question"
     print(state)
     anonymize_question_prompt_template = """
-You are an anonymizer for questions within a Moodle Support Ticket system. Your task is to anonymize all named entities (such as names, course names, locations, etc.) in a given support ticket question by replacing them with placeholder variables, while also generating a mapping of these original entities to the placeholders. Additionally, you should provide an explanation of how the anonymization was carried out.
+You are an anonymizer for questions within a Support Ticket system. Your task is to anonymize all named entities (such as names, course names, locations, etc.) in a given support ticket question by replacing them with placeholder variables, while also generating a mapping of these original entities to the placeholders. Additionally, you should provide an explanation of how the anonymization was carried out.
 
 Instructions:
 1. Receive a question in the form of a string: {question}.

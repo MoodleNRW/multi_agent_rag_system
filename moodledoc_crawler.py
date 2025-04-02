@@ -29,14 +29,14 @@ from langchain.text_splitter import CharacterTextSplitter
 import weaviate.classes as wvc
 from vector_stores import weaviate_client
 
-dotenv.load_dotenv()
+dotenv.load_dotenv(override=True)
 
 # Globals for progress tracking
 total_pages = 0
 completed_pages = 0
 lock = threading.Lock()
 API_KEY = os.getenv('OPENAI_API_KEY')
-
+print(API_KEY)
 # Weaviate-Client initialisieren
 weaviate_instance = weaviate_client.create_weaviate_client()
 
