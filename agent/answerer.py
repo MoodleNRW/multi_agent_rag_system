@@ -125,7 +125,7 @@ async def run_qualtative_answer_workflow_for_final_answer(state: PlanExecute):
 
     if not context or not context.strip():
         await cl.Message(content="Aggregated context is empty. Cannot generate final answer.").send()
-        state["response"] = {"answer": "I could not find enough information to answer the question based on the provided documents."}
+        state["response"] = "I could not find enough information to answer the question based on the provided documents."
         return state
 
     # Adjust prompt based on whether the answer should be full or partial
@@ -161,9 +161,9 @@ async def run_qualtative_answer_workflow_for_final_answer(state: PlanExecute):
         input_data = {"question": question, "context": context}
         output = final_answer_chain.invoke(input_data)
         final_answer = output.answer_based_on_content
-        state["response"] = {"answer": final_answer}
+        state["response"] = final_answer
     except Exception as e:
         await cl.Message(content=f"Error during final answer generation: {e}.").send()
-        state["response"] = {"answer": f"An error occurred while generating the final answer: {e}"}
+        state["response"] = f"An error occurred while generating the final answer: {e}"
 
     return state

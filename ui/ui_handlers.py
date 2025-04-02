@@ -2,6 +2,7 @@ import chainlit as cl
 import logging
 import time
 import os
+import asyncio # Importiere asyncio für sleep
 
 # Konfiguriere Logger
 logger = logging.getLogger(__name__)
@@ -72,6 +73,11 @@ STEP_INFO = {
         "emoji": "🎯",
         "description": "Überprüfe, ob der abgerufene Inhalt relevant ist...",
         "type": "process"
+    },
+    "keep_only_relevant_content": {
+        "emoji": "🗑️",
+        "description": "Filtere irrelevante Informationen heraus...",
+        "type": "process"
     }
 }
 
@@ -89,6 +95,7 @@ async def show_crawler_option():
 async def update_ui(step_output):
     """
     Aktualisiert die Benutzeroberfläche basierend auf dem aktuellen Schritt im Workflow.
+    Zeigt nur die TaskList für Zwischenschritte an.
     
     Args:
         step_output: Der aktuelle Ausgabezustand des Workflows
@@ -106,67 +113,38 @@ async def update_ui(step_output):
         step_info = STEP_INFO[current_state]
         
         # Erstelle eine TaskList für die Anzeige des aktuellen Schritts
-        task_list = cl.TaskList(status=f"Verarbeite: {current_state.replace('_', ' ').title()}")
+        task_list = cl.TaskList(status=f"Aktueller Schritt: {current_state.replace('_', ' ').title()}")
         
-        # Erstelle eine Task mit dem entsprechenden Emoji und Statustext
+        # Erstelle eine Task mit dem entsprechenden Emoji und der Beschreibung im Titel
         task = cl.Task(
-            title=f"{step_info['emoji']} {current_state.replace('_', ' ').title()}",
+            title=f"{step_info['emoji']} {current_state.replace('_', ' ').title()}: {step_info['description']}",
             status=cl.TaskStatus.RUNNING
         )
         
         # Füge die Task zur TaskList hinzu
         await task_list.add_task(task)
         
-        # Sende die TaskList
+        # Sende die TaskList mit dem RUNNING Status
         await task_list.send()
         
-        # Sende eine detaillierte Nachricht, die den aktuellen Prozess erklärt
-        message_content = f"{step_info['emoji']} **{current_state.replace('_', ' ').title()}**: {step_info['description']}"
+        # Kurze Pause, damit der Benutzer den "RUNNING"-Status sehen kann
+        await asyncio.sleep(0.1) 
         
-        # Füge weitere Details hinzu, wenn verfügbar
-        if current_state.startswith("retrieve_"):
-            # Zeige Fortschritt für Retrieval-Schritte
-            message_content += "\n\n*Suche nach den relevantesten Informationen für deine Anfrage...*"
-            
-            # Zeige die Abfrage an
-            if "query_to_retrieve_or_answer" in step_output:
-                message_content += f"\n\n**Abfrage**: {step_output['query_to_retrieve_or_answer']}"
-        elif current_state == "answer":
-            # Zeige Fortschritt für Antwort-Generierung
-            message_content += "\n\n*Formuliere eine präzise und hilfreiche Antwort basierend auf den gefundenen Informationen...*"
-            
-            # Zeige die Frage an
-            if "query_to_retrieve_or_answer" in step_output:
-                message_content += f"\n\n**Frage**: {step_output['query_to_retrieve_or_answer']}"
-        elif current_state == "hallucination_check":
-            # Zeige Fortschritt für Halluzinationsprüfung
-            message_content += "\n\n*Überprüfe, ob die generierte Antwort auf den abgerufenen Fakten basiert...*"
-        elif current_state == "relevance_check":
-            # Zeige Fortschritt für Relevanzprüfung
-            message_content += "\n\n*Überprüfe, ob der abgerufene Inhalt für die Anfrage relevant ist...*"
-        elif current_state == "get_final_answer":
-            # Zeige Fortschritt für endgültige Antwort
-            message_content += "\n\n*Erstelle eine umfassende Antwort basierend auf allen gesammelten Informationen...*"
-        
-        message = await cl.Message(content=message_content).send()
-        
-        # Verknüpfe die Task mit der Nachricht
-        task.forId = message.id
-        
-        # Aktualisiere den Task-Status nach kurzer Verzögerung
-        task.status = cl.TaskStatus.DONE
-        await task_list.send()
-        
-        # Zeige den Gedankengang an, wenn verfügbar
-        if current_state == "answer" and "reasoning" in step_output:
-            await cl.Message(content=f"🧠 **Gedankengang**:\n\n{step_output['reasoning']}").send()
-        elif current_state == "get_final_answer" and "final_reasoning" in step_output:
-            await cl.Message(content=f"🧠 **Finaler Gedankengang**:\n\n{step_output['final_reasoning']}").send()
-    else:
-        # Fallback für unbekannte Zustände
-        await cl.Message(content=f"🔄 Verarbeite: {current_state}").send()
+        # Aktualisiere den Task-Status auf DONE
+        # (Nur die finale Antwort wird als separate Nachricht gesendet, nicht die Statusmeldung hier)
+        if current_state != "get_final_answer": # Markiere alle Schritte außer dem letzten als DONE
+             task.status = cl.TaskStatus.DONE
+             await task_list.send() # Sende die aktualisierte TaskList
 
-    # Logge zusätzliche Informationen für Debugging
+        # Keine separaten cl.Message-Objekte mehr für Zwischenschritte
+        # message_content = ...
+        # message = await cl.Message(content=message_content).send()
+        # task.forId = message.id # Nicht mehr relevant ohne message
+        
+        # Auch keine Gedankengang-Nachrichten mehr
+        # if current_state == "answer" ...
+
+    # Logge zusätzliche Informationen für Debugging (unverändert)
     if "plan" in step_output and step_output["plan"]:
         plan_steps = step_output["plan"]
         if len(plan_steps) > 0:
@@ -193,6 +171,9 @@ async def update_ui(step_output):
             # Sende die TaskList mit den Schritten im RUNNING-Status
             await steps_task_list.send()
             
+            # Kurze Pause, damit der Benutzer den "RUNNING"-Status sehen kann
+            await asyncio.sleep(0.1)
+
             # Aktualisiere den Status aller Tasks auf DONE
             for task in step_tasks:
                 task.status = cl.TaskStatus.DONE

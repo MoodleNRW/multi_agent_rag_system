@@ -24,8 +24,7 @@ async def is_answer_grounded_on_context(state: PlanExecute):
     """
     state["curr_state"] = "check_hallucination"
 
-    answer_dict = state.get("response", {})
-    answer = answer_dict.get("answer", "")
+    answer = state.get("response", "")
     context = state.get("aggregated_filtered_context", "")
 
     if not answer or not answer.strip():
